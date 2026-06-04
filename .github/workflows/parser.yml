@@ -1,50 +1,56 @@
-name: VLESS MegaParser с HTTP проверкой
+name: VLESS Parser (Xray + Sing-box)
 
 on:
   schedule:
-    # Запуск каждый час (в 00 минут)
-    - cron: '0 * * * *'
-  workflow_dispatch:
-    inputs:
-      max_threads:
-        description: 'Количество потоков'
-        required: false
-        default: '30'
-      max_configs:
-        description: 'Максимум конфигов'
-        required: false
-        default: '500'
+    - cron: '0 */2 * * *'   # каждые 2 часа
+  workflow_dispatch:         # ручной запуск
 
 jobs:
   parse:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     permissions:
       contents: write
 
     steps:
-      - name: 📥 Checkout репозитория
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 🐍 Установка Python 3.11
+      - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: 📦 Установка зависимостей
-        run: |
-          python -m pip install --upgrade pip
+      - name: Create bin directory
+        run: mkdir -p bin
 
-      - name: 🔧 Запуск MegaParser
+      - name: Download Xray
         run: |
-          python parser.py --verbose --push
+          cd bin
+          wget -q https://github.com/XTLS/Xray-core/releases/download/1.8.13/Xray-linux-64.zip
+          unzip -j Xray-linux-64.zip xray
+          chmod +x xray
+          rm Xray-linux-64.zip
+          cd ..
+
+      - name: Download Sing-box
+        run: |
+          cd bin
+          wget -q https://github.com/SagerNet/sing-box/releases/download/v1.9.0/sing-box-1.9.0-linux-amd64.tar.gz
+          tar -xzf sing-box-1.9.0-linux-amd64.tar.gz
+          chmod +x sing-box
+          rm sing-box-1.9.0-linux-amd64.tar.gz
+          cd ..
+
+      - name: Run parser
+        run: python parser.py
+        timeout-minutes: 55
         env:
           PYTHONUNBUFFERED: 1
-          GITHUB_ACTIONS: 'true'
 
-      - name: 📊 Показать статистику
+      - name: Show statistics
         if: always()
         run: |
           if [ -f stats.json ]; then
@@ -53,9 +59,15 @@ jobs:
           else
             echo "stats.json не найден"
           fi
-          if [ -f parser.log ]; then
-            echo "=== Лог файл (последние 100 строк) ==="
-            tail -100 parser.log
+
+      - name: Commit and push results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output.txt stats.json 2>/dev/null || true
+          if ! git diff --quiet --cached; then
+            git commit -m "Auto-update: VLESS configs [skip ci]"
+            git push
           else
-            echo "parser.log не найден"
+            echo "No changes to commit"
           fi
