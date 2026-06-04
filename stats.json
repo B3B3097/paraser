@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-06-04T08:52:53.826162",
-  "total_raw": 559,
-  "filtered": 199,
-  "unique": 131,
-  "final": 131,
-  "runtime_sec": 0.43
+  "updated_at": "2026-06-04T22:12:08.095062+00:00",
+  "sources_count": 524,
+  "total_fetched": 26891,
+  "working": 16171,
+  "failed": 10720,
+  "success_rate": 60.1
 }
