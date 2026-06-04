@@ -1,47 +1,60 @@
-name: VLESS Parser (Xray + Sing-box)
+name: VLESS MegaParser (без ядер)
 
 on:
   schedule:
-    - cron: '0 */4 * * *'
+    # Запуск каждый час (в 00 минут)
+    - cron: '0 * * * *'
+  # Ручной запуск из интерфейса GitHub
   workflow_dispatch:
+    inputs:
+      max_threads:
+        description: 'Количество потоков проверки'
+        required: false
+        default: '30'
+      max_configs:
+        description: 'Максимум конфигов в выходном файле'
+        required: false
+        default: '500'
+      max_latency:
+        description: 'Максимальная задержка (мс)'
+        required: false
+        default: '2000'
+
+# Предотвращаем одновременный запуск нескольких экземпляров
+concurrency:
+  group: vless-parser
+  cancel-in-progress: false
 
 jobs:
   parse:
     runs-on: ubuntu-latest
+    timeout-minutes: 30   # защита от зависания
     steps:
-      - name: Checkout repository
+      - name: Получить код репозитория
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Установить Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Create bin directory
-        run: mkdir -p bin
-
-      - name: Download Xray
+      - name: Запустить MegaParser
         run: |
-          set -e
-          wget -q https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
-          unzip -j Xray-linux-64.zip xray -d bin/
-          chmod +x bin/xray
+          python megaparser.py \
+            --sources sources.txt \
+            --output output.txt \
+            --max-threads ${{ inputs.max_threads || 30 }} \
+            --max-configs ${{ inputs.max_configs || 500 }} \
+            --max-latency ${{ inputs.max_latency || 2000 }} \
+            --log-file parser.log \
+            --verbose
+        env:
+          PYTHONUNBUFFERED: 1
 
-      - name: Download Sing-box
-        run: |
-          set -e
-          wget -q https://github.com/SagerNet/sing-box/releases/latest/download/sing-box-linux-amd64.tar.gz
-          tar -xzf sing-box-linux-amd64.tar.gz
-          mv sing-box-*/sing-box bin/ || mv sing-box*/sing-box bin/
-          chmod +x bin/sing-box
-
-      - name: Run parser
-        run: python parser.py
-
-      - name: Commit and push results
+      - name: Сохранить результаты в репозитории
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add output.txt
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update VLESS configs [skip ci]"
+          git add output.txt statistics.json parser.log dead_configs.txt 2>/dev/null || true
+          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update VLESS configs (hourly) [skip ci]"
           git push
