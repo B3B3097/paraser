@@ -1,0 +1,476 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: VLESS Config Parser API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: sources
+    description: Config sources management
+  - name: configs
+    description: Parsed VLESS configs
+  - name: checker
+    description: Connectivity checking
+  - name: export
+    description: Config export
+
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /sources:
+    get:
+      operationId: listSources
+      tags: [sources]
+      summary: List all sources
+      responses:
+        "200":
+          description: List of sources
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Source"
+    post:
+      operationId: createSource
+      tags: [sources]
+      summary: Add a new source
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SourceInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Source"
+
+  /sources/{id}:
+    delete:
+      operationId: deleteSource
+      tags: [sources]
+      summary: Delete a source
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /sources/{id}/fetch:
+    post:
+      operationId: fetchSource
+      tags: [sources]
+      summary: Fetch and parse configs from a source
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Fetch result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FetchResult"
+
+  /sources/fetch-all:
+    post:
+      operationId: fetchAllSources
+      tags: [sources]
+      summary: Fetch configs from all sources
+      responses:
+        "200":
+          description: Fetch results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FetchAllResult"
+
+  /configs:
+    get:
+      operationId: listConfigs
+      tags: [configs]
+      summary: List parsed VLESS configs
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [all, unchecked, working, failed]
+        - name: checkLevel
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [tcp, tls, http]
+      responses:
+        "200":
+          description: List of configs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VlessConfig"
+
+    delete:
+      operationId: clearConfigs
+      tags: [configs]
+      summary: Clear all configs
+      responses:
+        "204":
+          description: Cleared
+
+  /configs/stats:
+    get:
+      operationId: getConfigStats
+      tags: [configs]
+      summary: Get config statistics
+      responses:
+        "200":
+          description: Statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfigStats"
+
+  /configs/{id}:
+    get:
+      operationId: getConfig
+      tags: [configs]
+      summary: Get a single config
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Config detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VlessConfig"
+
+  /checker/check:
+    post:
+      operationId: checkConfigs
+      tags: [checker]
+      summary: Start checking configs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CheckRequest"
+      responses:
+        "200":
+          description: Check job started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckJobStatus"
+
+  /checker/status:
+    get:
+      operationId: getCheckerStatus
+      tags: [checker]
+      summary: Get current checker status
+      responses:
+        "200":
+          description: Checker status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CheckJobStatus"
+
+  /export:
+    post:
+      operationId: exportConfigs
+      tags: [export]
+      summary: Export working configs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExportRequest"
+      responses:
+        "200":
+          description: Exported config text
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExportResult"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    Source:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        url:
+          type: string
+        type:
+          type: string
+          enum: [url, subscription, file]
+        enabled:
+          type: boolean
+        lastFetchedAt:
+          type: ["string", "null"]
+        configCount:
+          type: integer
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - url
+        - type
+        - enabled
+        - configCount
+        - createdAt
+
+    SourceInput:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+        url:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          enum: [url, subscription, file]
+      required:
+        - name
+        - url
+        - type
+
+    FetchResult:
+      type: object
+      properties:
+        sourceId:
+          type: integer
+        found:
+          type: integer
+        added:
+          type: integer
+        duplicates:
+          type: integer
+        error:
+          type: ["string", "null"]
+      required:
+        - sourceId
+        - found
+        - added
+        - duplicates
+
+    FetchAllResult:
+      type: object
+      properties:
+        totalFound:
+          type: integer
+        totalAdded:
+          type: integer
+        totalDuplicates:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/FetchResult"
+      required:
+        - totalFound
+        - totalAdded
+        - totalDuplicates
+        - results
+
+    VlessConfig:
+      type: object
+      properties:
+        id:
+          type: integer
+        uuid:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        name:
+          type: string
+        network:
+          type: ["string", "null"]
+        security:
+          type: ["string", "null"]
+        sni:
+          type: ["string", "null"]
+        path:
+          type: ["string", "null"]
+        flow:
+          type: ["string", "null"]
+        sourceId:
+          type: ["integer", "null"]
+        tcpStatus:
+          type: ["string", "null"]
+          enum: [ok, fail, null]
+        tlsStatus:
+          type: ["string", "null"]
+          enum: [ok, fail, null]
+        httpStatus:
+          type: ["string", "null"]
+          enum: [ok, fail, null]
+        latencyMs:
+          type: ["integer", "null"]
+        checkedAt:
+          type: ["string", "null"]
+        rawUri:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - uuid
+        - host
+        - port
+        - name
+        - rawUri
+        - createdAt
+
+    ConfigStats:
+      type: object
+      properties:
+        total:
+          type: integer
+        unchecked:
+          type: integer
+        tcpOk:
+          type: integer
+        tlsOk:
+          type: integer
+        httpOk:
+          type: integer
+        failed:
+          type: integer
+      required:
+        - total
+        - unchecked
+        - tcpOk
+        - tlsOk
+        - httpOk
+        - failed
+
+    CheckRequest:
+      type: object
+      properties:
+        level:
+          type: string
+          enum: [tcp, tls, http]
+        concurrency:
+          type: integer
+          minimum: 1
+          maximum: 50
+        timeoutMs:
+          type: integer
+          minimum: 1000
+          maximum: 30000
+        configIds:
+          type: array
+          items:
+            type: integer
+      required:
+        - level
+
+    CheckJobStatus:
+      type: object
+      properties:
+        running:
+          type: boolean
+        level:
+          type: ["string", "null"]
+          enum: [tcp, tls, http, null]
+        total:
+          type: integer
+        checked:
+          type: integer
+        working:
+          type: integer
+        failed:
+          type: integer
+        startedAt:
+          type: ["string", "null"]
+      required:
+        - running
+        - total
+        - checked
+        - working
+        - failed
+
+    ExportRequest:
+      type: object
+      properties:
+        format:
+          type: string
+          enum: [singbox, xray, raw]
+        level:
+          type: string
+          enum: [tcp, tls, http]
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 1000
+      required:
+        - format
+        - level
+
+    ExportResult:
+      type: object
+      properties:
+        format:
+          type: string
+        count:
+          type: integer
+        content:
+          type: string
+      required:
+        - format
+        - count
+        - content
