@@ -1,101 +1,45 @@
-# VLESS Ultimate Parser 🛜
+VLESS Parser
+A tool for collecting, parsing and testing VLESS proxy configs from URL/subscription sources with multi-level connectivity checks and export to Sing-Box/Xray formats.
 
-Автоматический парсер и валидатор VLESS конфигураций с многоуровневой проверкой.
+Run & Operate
+pnpm --filter @workspace/api-server run dev — run the API server (port 5000)
+pnpm --filter @workspace/vless-parser run dev — run the frontend
+pnpm run typecheck — full typecheck across all packages
+pnpm run build — typecheck + build all packages
+pnpm --filter @workspace/api-spec run codegen — regenerate API hooks and Zod schemas from the OpenAPI spec
+pnpm --filter @workspace/db run push — push DB schema changes (dev only)
+Required env: DATABASE_URL — Postgres connection string
+Stack
+pnpm workspaces, Node.js 24, TypeScript 5.9
+Frontend: React + Vite, Tailwind CSS, shadcn/ui, TanStack Query
+API: Express 5
+DB: PostgreSQL + Drizzle ORM
+Validation: Zod (zod/v4), drizzle-zod
+API codegen: Orval (from OpenAPI spec)
+Build: esbuild (CJS bundle)
+Where things live
+lib/api-spec/openapi.yaml — API contract (source of truth)
+lib/db/src/schema/ — DB tables: sources.ts, vless_configs.ts
+artifacts/api-server/src/routes/ — sources, configs, checker, export routes
+artifacts/api-server/src/lib/ — vless-parser.ts, checker.ts, checker-job.ts
+artifacts/vless-parser/src/pages/ — Dashboard, Sources, Configs, Checker, Export
+Architecture decisions
+Check levels are progressive: TCP → TCP+TLS → TCP+TLS+HTTP. Each level builds on the previous.
+The checker runs in the background using setImmediate and updates DB records in real-time.
+Frontend polls /checker/status every 1.5s when running=true.
+VLESS parsing supports base64-encoded subscriptions (auto-detects and decodes).
+Export sorts working configs by latency ASC so fastest configs appear first.
+Product
+Add URL/subscription sources and fetch VLESS configs from them
+Run connectivity checks at TCP, TLS, or HTTP level with configurable concurrency/timeout
+View all parsed configs with status badges and latency
+Export working configs in Sing-Box JSON, Xray JSON, or raw VLESS URI format
+User preferences
+Populate as you build.
 
-## 🌟 Возможности
-
-- **Многоуровневая проверка**: TCP, TLS, WebSocket
-- **Автоматическое обновление**: каждые 2 часа
-- **Дедупликация**: удаление дубликатов конфигов
-- **Белый/чёрный список**: фильтрация по SNI и паттернам
-- **Base64 кодирование**: подписи для клиентов (Clash, V2Ray и т.д.)
-- **Статистика**: отслеживание количества конфигов
-- **GitHub Actions**: полная автоматизация
-
-## 📋 Источники
-
-- igareck/vpn-configs-for-russia (приоритет)
-- SilentGhostCodes/WhiteListVpn
-- zieng2/wl
-
-## 🔗 Получение подписей
-
-### Plain текст (для V2Ray, Xray):
-```
-https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI.txt
-```
-
-### Base64 (для Clash, другие клиенты):
-```
-https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_base64.txt
-```
-
-### WAR формат (sub-store):
-```
-https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI.war
-```
-
-## 📊 Статистика
-
-Статистика обновлений доступна в:
-```
-https://raw.githubusercontent.com/B3B3097/paraser/main/stats.json
-```
-
-## 🛠️ Локальный запуск
-
-```bash
-# Установка зависимостей
-pip install requests pysocks
-
-# Запуск парсера
-python parser.py
-
-# С автоматической отправкой в GitHub
-python parser.py --push
-```
-
-## ⚙️ Конфигурация
-
-Параметры в `parser.py`:
-- `max_keys`: 400 (максимальное количество конфигов)
-- `tcp_timeout`: 3.0 сек
-- `tls_timeout`: 5.0 сек
-- `http_timeout`: 8.0 сек
-- `max_latency`: 1500 мс
-
-## 📝 Дополнительные файлы
-
-Создай для более гибкой настройки:
-
-**`sources.txt`** - дополнительные источники (один URL на строку):
-```
-https://example.com/vless.txt
-https://example2.com/configs.txt
-```
-
-**`sni_whitelist.txt`** - дополнительные белые домены (один домен на строку):
-```
-example.ru
-test.com
-```
-
-**`blacklist.txt`** - чёрный список паттернов (один паттерн на строку):
-```
-badactor.com
-spam.ru
-```
-
-## 🔄 GitHub Actions
-
-Автоматический запуск:
-- ⏰ По расписанию: каждые 2 часа
-- 🚀 Вручную: через кнопку "Run workflow"
-
-## 📧 Контакты
-
-ТГ: [@Remainingconnections](https://t.me/Remainingconnections)
-
----
-
-**Последнее обновление**: смотри `stats.json`
+Gotchas
+The checker job state is in-memory — restarts the server resets progress display (results are still saved to DB)
+Orval body schema naming: use entity-shaped names (e.g. SourceInput), not operation-shaped (CreateSourceBody) to avoid TS2308 collisions
+@import url(...) in index.css MUST be the very first line before @import "tailwindcss"
+Pointers
+See the pnpm-workspace skill for workspace structure, TypeScript setup, and package details
