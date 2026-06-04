@@ -2,8 +2,8 @@ name: VLESS Parser (Xray + Sing-box)
 
 on:
   schedule:
-    - cron: '0 */4 * * *'   # каждые 4 часа
-  workflow_dispatch:         # ручной запуск
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
 
 jobs:
   parse:
@@ -22,19 +22,18 @@ jobs:
 
       - name: Download Xray
         run: |
+          set -e
           wget -q https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
           unzip -j Xray-linux-64.zip xray -d bin/
           chmod +x bin/xray
 
       - name: Download Sing-box
         run: |
+          set -e
           wget -q https://github.com/SagerNet/sing-box/releases/latest/download/sing-box-linux-amd64.tar.gz
           tar -xzf sing-box-linux-amd64.tar.gz
-          mv sing-box-*/sing-box bin/
+          mv sing-box-*/sing-box bin/ || mv sing-box*/sing-box bin/
           chmod +x bin/sing-box
-
-      - name: Install dependencies (none, uses only standard library)
-        run: echo "No extra dependencies needed"
 
       - name: Run parser
         run: python parser.py
