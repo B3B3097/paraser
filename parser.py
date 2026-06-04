@@ -7,28 +7,22 @@ writes working configs to OSTATSYA_NA_SVYAZI.txt and base64 version.
 
 import asyncio
 import base64
+import json
 import re
-import socket
 import sys
 import urllib.request
 import urllib.error
+import urllib.parse
 from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime, timezone
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-TCP_TIMEOUT = 5       # seconds per connection attempt
-CONCURRENCY = 80      # parallel TCP checks
-FETCH_TIMEOUT = 20    # seconds for HTTP fetch
-CONFIG_NAME = "ОСТАНЕТСЯ НА СВЯЗИ 🛜"
-
-# GitHub repo URLs to auto-detect raw VLESS files
-GITHUB_VLESS_PATTERNS = [
-    r"vless\.txt", r"configs\.txt", r"config\.txt", r"sub\.txt",
-    r"vless$", r"configs$", r"subscription", r"sub$",
-    r"proxy", r"nodes", r"free", r"vpn",
-]
+TCP_TIMEOUT = 5        # seconds per connection attempt
+CONCURRENCY = 80       # parallel TCP checks
+FETCH_TIMEOUT = 20     # seconds for HTTP fetch
+CONFIG_NAME = "ОСТАТЬСЯ НА СВЯЗИ 🛜"
 
 # ─── VLESS Parsing ─────────────────────────────────────────────────────────────
 
@@ -137,18 +131,55 @@ def try_decode_base64(text: str) -> str:
     return text
 
 
+# ─── Geo / Flag lookup ─────────────────────────────────────────────────────────
+
+_geo_cache: dict[str, str] = {}
+
+
+def country_code_to_flag(code: str) -> str:
+    """Convert 2-letter country code to emoji flag."""
+    try:
+        return "".join(chr(ord(c) + 127397) for c in code.upper())
+    except Exception:
+        return "🌐"
+
+
+def get_host_flag(host: str) -> str:
+    """Return emoji flag for a host IP/domain via ip-api.com."""
+    if host in _geo_cache:
+        return _geo_cache[host]
+    try:
+        req = urllib.request.Request(
+            f"http://ip-api.com/json/{host}?fields=countryCode",
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read())
+            code = data.get("countryCode", "")
+            flag = country_code_to_flag(code) if code else "🌐"
+    except Exception:
+        flag = "🌐"
+    _geo_cache[host] = flag
+    return flag
+
+
+def build_config_name(flag: str) -> str:
+    return f"{flag} {CONFIG_NAME}"
+
+
+def rebuild_uri_with_name(raw_uri: str, name: str) -> str:
+    hash_idx = raw_uri.find("#")
+    base = raw_uri[:hash_idx] if hash_idx >= 0 else raw_uri
+    return f"{base}#{urllib.parse.quote(name)}"
+
+
 # ─── GitHub URL Resolution ─────────────────────────────────────────────────────
-
-import urllib.parse
-
 
 def github_repo_to_raw_urls(url: str) -> list[str]:
     """Convert a GitHub repo URL to potential raw content URLs."""
-    # Already a raw URL
     if "raw.githubusercontent.com" in url:
         return [url]
 
-    # Fix broken URLs
     if url.startswith("://github.com"):
         url = "https:" + url
     if not url.startswith("http"):
@@ -163,13 +194,12 @@ def github_repo_to_raw_urls(url: str) -> list[str]:
         return []
 
     owner, repo = path_parts[0], path_parts[1]
-    # If it's a deep path (direct file), convert to raw
+
     if len(path_parts) > 3 and path_parts[2] in ("blob", "raw"):
         branch = path_parts[3]
         file_path = "/".join(path_parts[4:])
         return [f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"]
 
-    # Try common file locations in repo
     candidates = []
     common_branches = ["main", "master"]
     common_files = [
@@ -183,7 +213,7 @@ def github_repo_to_raw_urls(url: str) -> list[str]:
         for f in common_files:
             candidates.append(f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{f}")
 
-    return candidates[:6]  # limit per repo
+    return candidates[:6]
 
 
 # ─── Fetching ──────────────────────────────────────────────────────────────────
@@ -192,7 +222,7 @@ def fetch_url(url: str, timeout: int = FETCH_TIMEOUT) -> Optional[str]:
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read(10 * 1024 * 1024)  # 10MB limit
+            raw = resp.read(10 * 1024 * 1024)
             text = raw.decode("utf-8", errors="ignore")
             return try_decode_base64(text)
     except Exception:
@@ -215,40 +245,35 @@ def fetch_configs_from_source(url: str) -> list[ParsedVless]:
 async def check_tcp(host: str, port: int, timeout: float = TCP_TIMEOUT) -> tuple[bool, float]:
     start = asyncio.get_event_loop().time()
     try:
-        reader, writer = await asyncio.wait_for(
+        _, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port),
-            timeout=timeout
+            timeout=timeout,
         )
-        latency = asyncio.get_event_loop().time() - start
+        latency = (asyncio.get_event_loop().time() - start) * 1000
         writer.close()
         try:
             await writer.wait_closed()
         except Exception:
             pass
-        return True, latency * 1000
+        return True, latency
     except Exception:
         return False, (asyncio.get_event_loop().time() - start) * 1000
 
 
-async def check_batch(configs: list[ParsedVless], concurrency: int = CONCURRENCY) -> list[tuple[ParsedVless, bool, float]]:
+async def check_batch(
+    configs: list[ParsedVless],
+    concurrency: int = CONCURRENCY,
+) -> list[tuple[ParsedVless, bool, float]]:
     semaphore = asyncio.Semaphore(concurrency)
-    results = []
+    results: list[tuple[ParsedVless, bool, float]] = []
 
-    async def check_one(cfg: ParsedVless):
+    async def check_one(cfg: ParsedVless) -> None:
         async with semaphore:
             ok, latency = await check_tcp(cfg.host, cfg.port)
             results.append((cfg, ok, latency))
 
     await asyncio.gather(*[check_one(c) for c in configs])
     return results
-
-
-# ─── Name Building ─────────────────────────────────────────────────────────────
-
-def rebuild_uri_with_name(raw_uri: str, name: str) -> str:
-    hash_idx = raw_uri.find("#")
-    base = raw_uri[:hash_idx] if hash_idx >= 0 else raw_uri
-    return f"{base}#{urllib.parse.quote(name)}"
 
 
 # ─── Main ──────────────────────────────────────────────────────────────────────
@@ -270,18 +295,19 @@ def read_sources(path: str = "source.txt") -> list[str]:
     return urls
 
 
-async def main():
+async def main() -> None:
     print(f"[{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}] VLESS Parser starting...")
+    print(f"  Config name template: <flag> {CONFIG_NAME}")
 
     sources = read_sources("source.txt")
     print(f"  Sources loaded: {len(sources)}")
 
-    # Fetch all configs
+    # ── Fetch all configs ──────────────────────────────────────────────────────
     all_configs: list[ParsedVless] = []
     seen_keys: set[str] = set()
 
     for i, source_url in enumerate(sources, 1):
-        print(f"  [{i}/{len(sources)}] Fetching: {source_url[:80]}")
+        print(f"  [{i}/{len(sources)}] {source_url[:80]}")
         fetched = fetch_configs_from_source(source_url)
         added = 0
         for cfg in fetched:
@@ -291,40 +317,43 @@ async def main():
                 all_configs.append(cfg)
                 added += 1
         if added:
-            print(f"           +{added} configs (total: {len(all_configs)})")
+            print(f"           +{added} (total: {len(all_configs)})")
 
-    print(f"\n  Total unique configs fetched: {len(all_configs)}")
+    print(f"\n  Total unique configs: {len(all_configs)}")
 
     if not all_configs:
-        print("[WARN] No configs found. Exiting without updating files.")
+        print("[WARN] No configs found. Skipping file update.")
         return
 
-    # Check TCP connectivity
-    print(f"\n  Checking TCP connectivity (concurrency={CONCURRENCY}, timeout={TCP_TIMEOUT}s)...")
+    # ── TCP check ─────────────────────────────────────────────────────────────
+    print(f"\n  Checking TCP (concurrency={CONCURRENCY}, timeout={TCP_TIMEOUT}s)...")
     check_results = await check_batch(all_configs, CONCURRENCY)
 
     working = [(cfg, lat) for cfg, ok, lat in check_results if ok]
-    working.sort(key=lambda x: x[1])  # sort by latency ASC
+    working.sort(key=lambda x: x[1])  # fastest first
 
     print(f"  Working: {len(working)} / {len(all_configs)}")
 
-    # Build output URIs
-    output_lines = []
-    for cfg, lat in working:
-        named_uri = rebuild_uri_with_name(cfg.raw_uri, CONFIG_NAME)
+    # ── Geo lookup + name building ─────────────────────────────────────────────
+    print(f"\n  Looking up country flags for {len(working)} working configs...")
+    output_lines: list[str] = []
+
+    for idx, (cfg, lat) in enumerate(working, 1):
+        if idx % 50 == 0:
+            print(f"    Geo: {idx}/{len(working)}")
+        flag = get_host_flag(cfg.host)
+        name = build_config_name(flag)          # e.g. "🇷🇺 ОСТАТЬСЯ НА СВЯЗИ 🛜"
+        named_uri = rebuild_uri_with_name(cfg.raw_uri, name)
         output_lines.append(named_uri)
 
-    # Write OSTATSYA_NA_SVYAZI.txt
+    # ── Write output files ─────────────────────────────────────────────────────
     with open("OSTATSYA_NA_SVYAZI.txt", "w", encoding="utf-8") as f:
         f.write("\n".join(output_lines) + "\n")
 
-    # Write base64 version
     b64 = base64.b64encode("\n".join(output_lines).encode("utf-8")).decode("ascii")
     with open("OSTATSYA_NA_SVYAZI_base64.txt", "w", encoding="utf-8") as f:
         f.write(b64 + "\n")
 
-    # Write stats.json
-    import json
     stats = {
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "sources_count": len(sources),
@@ -337,9 +366,9 @@ async def main():
         json.dump(stats, f, indent=2, ensure_ascii=False)
 
     print(f"\n  Files updated:")
-    print(f"    OSTATSYA_NA_SVYAZI.txt      — {len(working)} working configs")
+    print(f"    OSTATSYA_NA_SVYAZI.txt       — {len(working)} configs (e.g. 🇷🇺 ОСТАТЬСЯ НА СВЯЗИ 🛜)")
     print(f"    OSTATSYA_NA_SVYAZI_base64.txt — base64 encoded")
-    print(f"    stats.json                  — run statistics")
+    print(f"    stats.json                   — run stats")
     print(f"\n  Done! Success rate: {stats['success_rate']}%")
 
 
