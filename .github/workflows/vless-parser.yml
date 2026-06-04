@@ -1,0 +1,58 @@
+name: VLESS Parser - Hourly Update
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      concurrency:
+        description: 'Parallel TCP checks (default: 80)'
+        required: false
+        default: '80'
+      timeout:
+        description: 'TCP timeout in seconds (default: 5)'
+        required: false
+        default: '5'
+
+permissions:
+  contents: write
+
+jobs:
+  parse-and-check:
+    name: Fetch, parse and check VLESS configs
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Apply custom settings from workflow_dispatch
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          sed -i "s/^CONCURRENCY = .*/CONCURRENCY = ${{ github.event.inputs.concurrency }}/" parser.py
+          sed -i "s/^TCP_TIMEOUT = .*/TCP_TIMEOUT = ${{ github.event.inputs.timeout }}/" parser.py
+
+      - name: Run VLESS parser
+        run: python parser.py
+
+      - name: Commit updated configs
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add OSTATSYA_NA_SVYAZI.txt OSTATSYA_NA_SVYAZI_base64.txt stats.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            WORKING=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['working'])")
+            TOTAL=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['total_fetched'])")
+            RATE=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['success_rate'])")
+            git commit -m "chore: update configs - ${WORKING}/${TOTAL} working (${RATE}% ok) [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+            git push
+            echo "Pushed ${WORKING} working configs."
+          fi
