@@ -1,8 +1,16 @@
 {
-  "updated_at": "2026-06-04T22:12:08.095062+00:00",
+  "updated_at": "2026-06-04T22:59:50.717003+00:00",
   "sources_count": 524,
-  "total_fetched": 26891,
-  "working": 16171,
-  "failed": 10720,
-  "success_rate": 60.1
+  "total_fetched": 26312,
+  "tcp_passing": 15811,
+  "tls_passing": 7677,
+  "xray_passing": 0,
+  "final_count": 0,
+  "stage_counts": {
+    "tcp": 0,
+    "tls": 0,
+    "xray": 0
+  },
+  "xray_used": true,
+  "success_rate": 0.0
 }
