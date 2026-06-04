@@ -1,45 +1,102 @@
-VLESS Parser
-A tool for collecting, parsing and testing VLESS proxy configs from URL/subscription sources with multi-level connectivity checks and export to Sing-Box/Xray formats.
+# 🛜 ОСТАТЬСЯ НА СВЯЗИ
 
-Run & Operate
-pnpm --filter @workspace/api-server run dev — run the API server (port 5000)
-pnpm --filter @workspace/vless-parser run dev — run the frontend
-pnpm run typecheck — full typecheck across all packages
-pnpm run build — typecheck + build all packages
-pnpm --filter @workspace/api-spec run codegen — regenerate API hooks and Zod schemas from the OpenAPI spec
-pnpm --filter @workspace/db run push — push DB schema changes (dev only)
-Required env: DATABASE_URL — Postgres connection string
-Stack
-pnpm workspaces, Node.js 24, TypeScript 5.9
-Frontend: React + Vite, Tailwind CSS, shadcn/ui, TanStack Query
-API: Express 5
-DB: PostgreSQL + Drizzle ORM
-Validation: Zod (zod/v4), drizzle-zod
-API codegen: Orval (from OpenAPI spec)
-Build: esbuild (CJS bundle)
-Where things live
-lib/api-spec/openapi.yaml — API contract (source of truth)
-lib/db/src/schema/ — DB tables: sources.ts, vless_configs.ts
-artifacts/api-server/src/routes/ — sources, configs, checker, export routes
-artifacts/api-server/src/lib/ — vless-parser.ts, checker.ts, checker-job.ts
-artifacts/vless-parser/src/pages/ — Dashboard, Sources, Configs, Checker, Export
-Architecture decisions
-Check levels are progressive: TCP → TCP+TLS → TCP+TLS+HTTP. Each level builds on the previous.
-The checker runs in the background using setImmediate and updates DB records in real-time.
-Frontend polls /checker/status every 1.5s when running=true.
-VLESS parsing supports base64-encoded subscriptions (auto-detects and decodes).
-Export sorts working configs by latency ASC so fastest configs appear first.
-Product
-Add URL/subscription sources and fetch VLESS configs from them
-Run connectivity checks at TCP, TLS, or HTTP level with configurable concurrency/timeout
-View all parsed configs with status badges and latency
-Export working configs in Sing-Box JSON, Xray JSON, or raw VLESS URI format
-User preferences
-Populate as you build.
+> Автоматический сборщик рабочих VLESS конфигов из сотен публичных репозиториев.  
+> Обновляется **каждый час** через GitHub Actions. Без серверов, без БД — всё прямо в репозитории.
 
-Gotchas
-The checker job state is in-memory — restarts the server resets progress display (results are still saved to DB)
-Orval body schema naming: use entity-shaped names (e.g. SourceInput), not operation-shaped (CreateSourceBody) to avoid TS2308 collisions
-@import url(...) in index.css MUST be the very first line before @import "tailwindcss"
-Pointers
-See the pnpm-workspace skill for workspace structure, TypeScript setup, and package details
+---
+
+## 📡 Подписка
+
+Вставьте эту ссылку в ваш VPN-клиент как подписку:
+
+```
+https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI.txt
+```
+
+**Base64-версия** (для клиентов, которые требуют base64):
+```
+https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_base64.txt
+```
+
+Конфиги называются по шаблону: `🇷🇺 ОСТАТЬСЯ НА СВЯЗИ 🛜` (флаг страны сервера).
+
+---
+
+## 📲 Поддерживаемые клиенты
+
+| Клиент | Платформа | Как добавить |
+|--------|-----------|--------------|
+| **v2rayNG** | Android | Подписки → + → вставить ссылку |
+| **Hiddify** | Android / iOS / Windows / Mac | Proxies → Add → Subscription link |
+| **Nekoray** | Windows / Linux | Программа → Подписки → Добавить |
+| **Streisand** | iOS | Добавить конфигурацию → URL |
+| **v2rayN** | Windows | Подписки → Управление → Добавить |
+
+---
+
+## ⚙️ Как это работает
+
+```
+source.txt  ──►  parser.py  ──►  TCP-проверка  ──►  OSTATSYA_NA_SVYAZI.txt
+(~400 источников)   (парсинг VLESS)   (80 параллельно)    (только рабочие)
+```
+
+1. GitHub Actions запускает `parser.py` каждый час
+2. Скрипт обходит все источники из `source.txt` (~400 репозиториев и URL)
+3. Извлекает уникальные VLESS-конфиги (поддерживает plain text и base64)
+4. Проверяет TCP-соединение для каждого конфига (таймаут 5 сек, 80 потоков)
+5. Определяет страну сервера и добавляет флаг к названию
+6. Сортирует рабочие конфиги по латентности (самые быстрые — первые)
+7. Коммитит обновлённые файлы обратно в репозиторий
+
+---
+
+## 📁 Файлы
+
+| Файл | Описание |
+|------|----------|
+| `OSTATSYA_NA_SVYAZI.txt` | Рабочие VLESS конфиги (plain text) |
+| `OSTATSYA_NA_SVYAZI_base64.txt` | То же, в base64 |
+| `stats.json` | Статистика последнего запуска |
+| `source.txt` | Список источников для парсинга |
+| `parser.py` | Скрипт парсера |
+| `.github/workflows/vless-parser.yml` | GitHub Actions workflow |
+
+---
+
+## 📊 Статистика
+
+Актуальная статистика в файле [`stats.json`](./stats.json):
+
+```json
+{
+  "updated_at": "...",
+  "sources_count": 400,
+  "total_fetched": 1500,
+  "working": 300,
+  "success_rate": 20.0
+}
+```
+
+---
+
+## ▶️ Запустить вручную
+
+1. Перейдите во вкладку **Actions**
+2. Выберите **VLESS Parser - Hourly Update**
+3. Нажмите **Run workflow**
+
+Можно изменить параметры перед запуском:
+- `concurrency` — сколько конфигов проверять параллельно (по умолчанию: 80)
+- `timeout` — таймаут TCP в секундах (по умолчанию: 5)
+
+---
+
+## ➕ Добавить источник
+
+Откройте `source.txt` и добавьте URL на новой строке:
+- Прямая ссылка на `vless.txt` / `configs.txt`
+- Ссылка на GitHub-репозиторий (скрипт сам найдёт файл с конфигами)
+- Подписка в формате base64
+
+Строки, начинающиеся с `#`, игнорируются.
