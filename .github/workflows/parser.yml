@@ -1,60 +1,61 @@
-name: VLESS MegaParser (без ядер)
+name: VLESS MegaParser с HTTP проверкой
 
 on:
   schedule:
     # Запуск каждый час (в 00 минут)
     - cron: '0 * * * *'
-  # Ручной запуск из интерфейса GitHub
   workflow_dispatch:
     inputs:
       max_threads:
-        description: 'Количество потоков проверки'
+        description: 'Количество потоков'
         required: false
         default: '30'
       max_configs:
-        description: 'Максимум конфигов в выходном файле'
+        description: 'Максимум конфигов'
         required: false
         default: '500'
-      max_latency:
-        description: 'Максимальная задержка (мс)'
-        required: false
-        default: '2000'
-
-# Предотвращаем одновременный запуск нескольких экземпляров
-concurrency:
-  group: vless-parser
-  cancel-in-progress: false
 
 jobs:
   parse:
     runs-on: ubuntu-latest
-    timeout-minutes: 30   # защита от зависания
-    steps:
-      - name: Получить код репозитория
-        uses: actions/checkout@v4
+    timeout-minutes: 45
+    permissions:
+      contents: write
 
-      - name: Установить Python 3.11
+    steps:
+      - name: 📥 Checkout репозитория
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🐍 Установка Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Запустить MegaParser
+      - name: 📦 Установка зависимостей
         run: |
-          python megaparser.py \
-            --sources sources.txt \
-            --output output.txt \
-            --max-threads ${{ inputs.max_threads || 30 }} \
-            --max-configs ${{ inputs.max_configs || 500 }} \
-            --max-latency ${{ inputs.max_latency || 2000 }} \
-            --log-file parser.log \
-            --verbose
+          python -m pip install --upgrade pip
+
+      - name: 🔧 Запуск MegaParser
+        run: |
+          python parser.py --verbose --push
         env:
           PYTHONUNBUFFERED: 1
+          GITHUB_ACTIONS: 'true'
 
-      - name: Сохранить результаты в репозитории
+      - name: 📊 Показать статистику
+        if: always()
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add output.txt statistics.json parser.log dead_configs.txt 2>/dev/null || true
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update VLESS configs (hourly) [skip ci]"
-          git push
+          if [ -f stats.json ]; then
+            echo "=== Статистика ==="
+            cat stats.json
+          else
+            echo "stats.json не найден"
+          fi
+          if [ -f parser.log ]; then
+            echo "=== Лог файл (последние 100 строк) ==="
+            tail -100 parser.log
+          else
+            echo "parser.log не найден"
+          fi
