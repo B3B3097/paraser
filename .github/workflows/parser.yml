@@ -5,11 +5,17 @@ on:
     - cron: '0 */2 * * *'
   workflow_dispatch:
 
+permissions:
+  contents: write
+  actions: read
+
 jobs:
   parse:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -22,17 +28,25 @@ jobs:
       - name: Download xray binary
         run: |
           mkdir -p bin
-          wget -q https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
-          unzip -j Xray-linux-64.zip xray -d bin/ || true
+          wget -q https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip -O xray.zip
+          unzip -j xray.zip xray -d bin/ || true
           chmod +x bin/xray || true
+          ls -la bin/
       
       - name: Run parser
         run: python parser.py
+      
+      - name: Check generated files
+        run: |
+          echo "=== Files created ==="
+          ls -lah *.txt stats.json 2>/dev/null || echo "No files found!"
       
       - name: Commit and push
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add "*.txt" stats.json || true
-          git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update VLESS configs"
-          git push || true
+          git add *.txt stats.json 2>/dev/null || true
+          git status
+          git diff --cached --quiet || git commit -m "Auto-update VLESS configs"
+          git push origin main
+        continue-on-error: true
