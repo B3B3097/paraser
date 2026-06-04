@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 VLESS MegaParser с реальной HTTP-проверкой через sing-box/xray
-Автоматическая загрузка ядер, многопоточная проверка
-Выходной файл: ОСТАТЬСЯ НА СВЯЗИ 🛜.txt
+Полная версия со всеми функциями
+Название подписки: ОСТАТЬСЯ НА СВЯЗИ 🛜
 """
 
 import os
@@ -75,7 +75,23 @@ OPERATOR_SNI = {
     'rostelecom': ["rostelecom.ru"],
 }
 
-# Глобальные счетчики
+# Исправленные флаги стран (все эмодзи полные)
+COUNTRY_FLAGS = {
+    'US': '🇺🇸', 'GB': '🇬🇧', 'DE': '🇩🇪', 'FR': '🇫🇷', 'NL': '🇳🇱',
+    'CA': '🇨🇦', 'AU': '🇦🇺', 'JP': '🇯🇵', 'SG': '🇸🇬', 'KR': '🇰🇷',
+    'RU': '🇷🇺', 'UA': '🇺🇦', 'PL': '🇵🇱', 'IT': '🇮🇹', 'ES': '🇪🇸',
+    'TR': '🇹🇷', 'IN': '🇮🇳', 'BR': '🇧🇷', 'MX': '🇲🇽', 'AR': '🇦🇷',
+    'CN': '🇨🇳', 'HK': '🇭🇰', 'TW': '🇹🇼', 'FI': '🇫🇮', 'SE': '🇸🇪',
+    'NO': '🇳🇴', 'DK': '🇩🇰', 'CH': '🇨🇭', 'AT': '🇦🇹', 'BE': '🇧🇪',
+    'IE': '🇮🇪', 'PT': '🇵🇹', 'GR': '🇬🇷', 'CZ': '🇨🇿', 'RO': '🇷🇴',
+    'HU': '🇭🇺', 'BG': '🇧🇬', 'HR': '🇭🇷', 'RS': '🇷🇸', 'SK': '🇸🇰',
+    'IL': '🇮🇱', 'AE': '🇦🇪', 'SA': '🇸🇦', 'EG': '🇪🇬', 'ZA': '🇿🇦',
+    'KZ': '🇰🇿', 'BY': '🇧🇾', 'MD': '🇲🇩', 'UZ': '🇺🇿', 'GE': '🇬🇪',
+    'AM': '🇦🇲', 'AZ': '🇦🇿', 'LT': '🇱🇹', 'LV': '🇱🇻', 'EE': '🇪🇪',
+}
+
+SUBSCRIPTION_NAME = "ОСТАТЬСЯ НА СВЯЗИ 🛜"
+
 stats_lock = threading.Lock()
 stats = {
     'total_checked': 0,
@@ -112,7 +128,7 @@ def fetch_url(url, timeout=15):
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.read().decode('utf-8', errors='ignore')
     except Exception as error:
-        log(f"⚠️ Ошибка загрузки {url[:60]}: {error}")
+        log(f"⚠️  Ошибка загрузки {url[:60]}: {error}")
         return None
 
 def base64_decode_safe(data):
@@ -143,35 +159,34 @@ def parse_vless_url(url):
 
     try:
         rest = url[8:]
-        # Извлекаем UUID
         match = re.match(r'([a-f0-9-]{36})@', rest, re.IGNORECASE)
         if not match:
             return None
+
         uuid = match.group(1)
         rest = rest[match.end():]
 
-        # Извлекаем host:port
         if '?' in rest:
-            host_port, query_string = rest.split('?', 1)
+            host_port = rest.split('?')[0]
+            query_string = rest.split('?')[1]
         else:
-            host_port, query_string = rest, ''
+            host_port = rest
+            query_string = ''
 
-        # Разбираем fragment (#)
         fragment = ''
         if '#' in host_port:
             host_port, fragment = host_port.rsplit('#', 1)
         if '#' in query_string:
-            query_string, frag_part = query_string.split('#', 1)
+            query_string, fragment_part = query_string.split('#', 1)
             if not fragment:
-                fragment = frag_part
+                fragment = fragment_part
 
-        # Host и port
         if ':' not in host_port:
             return None
-        host, port_str = host_port.rsplit(':', 1)
-        port = int(port_str)
 
-        # Парсим параметры
+        host, port = host_port.rsplit(':', 1)
+        port = int(port)
+
         params = {}
         if query_string:
             parsed_params = parse_qs(query_string)
@@ -187,7 +202,7 @@ def parse_vless_url(url):
             'original_url': url
         }
     except Exception as error:
-        log(f"⚠️ Ошибка парсинга URL: {error}")
+        log(f"⚠️  Ошибка парсинга URL: {error}")
         return None
 
 def tcp_check(host, port, timeout):
@@ -205,6 +220,20 @@ def tcp_check(host, port, timeout):
     except Exception:
         pass
     return False, None
+
+def get_country_flag(ip):
+    """Получение флага страны по IP"""
+    try:
+        req = urllib.request.Request(
+            f"http://ip-api.com/json/{ip}",
+            headers={'User-Agent': 'Mozilla/5.0'}
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+            country_code = data.get('countryCode', '')
+            return COUNTRY_FLAGS.get(country_code, '🏴')
+    except Exception:
+        return '🏴'
 
 def download_and_install_binaries():
     """Скачивание и установка sing-box и xray"""
@@ -235,7 +264,6 @@ def download_and_install_binaries():
     singbox_path = bin_dir / 'sing-box'
     xray_path = bin_dir / 'xray'
 
-    # Скачиваем sing-box если нет
     if not singbox_path.exists() or not os.access(singbox_path, os.X_OK):
         log(f"📥 Скачивание sing-box ({arch})...")
         try:
@@ -248,12 +276,11 @@ def download_and_install_binaries():
             singbox_path.chmod(0o755)
             log("✓ sing-box установлен")
         except Exception as error:
-            log(f"⚠️ Ошибка установки sing-box: {error}")
+            log(f"⚠️  Ошибка установки sing-box: {error}")
             singbox_path = None
     else:
         log("✓ sing-box уже установлен")
 
-    # Скачиваем xray если нет
     if not xray_path.exists() or not os.access(xray_path, os.X_OK):
         log(f"📥 Скачивание xray ({arch})...")
         try:
@@ -266,7 +293,7 @@ def download_and_install_binaries():
             xray_path.chmod(0o755)
             log("✓ xray установлен")
         except Exception as error:
-            log(f"⚠️ Ошибка установки xray: {error}")
+            log(f"⚠️  Ошибка установки xray: {error}")
             xray_path = None
     else:
         log("✓ xray уже установлен")
@@ -354,6 +381,7 @@ def generate_singbox_config(config_data, http_port):
         "outbounds": [outbound, {"type": "direct", "tag": "direct"}],
         "route": {"rules": [{"outbound": "proxy"}]}
     }
+
     return config
 
 def generate_xray_config(config_data, http_port):
@@ -441,6 +469,7 @@ def generate_xray_config(config_data, http_port):
         ],
         "outbounds": [outbound, {"protocol": "freedom", "tag": "direct"}]
     }
+
     return config
 
 def test_with_singbox(config_data, timeout):
@@ -456,13 +485,15 @@ def test_with_singbox(config_data, timeout):
         json.dump(config, config_file)
         config_path = config_file.name
 
+    process = None
     try:
         process = subprocess.Popen(
             [str(singbox_path), 'run', '-c', config_path],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        time.sleep(0.8)
+
+        time.sleep(0.8)  # даём время на запуск
 
         if process.poll() is not None:
             return False, None
@@ -477,6 +508,7 @@ def test_with_singbox(config_data, timeout):
         opener = urllib.request.build_opener(proxy_handler)
         opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')]
 
+        # Первая попытка
         try:
             req = urllib.request.Request(CONFIG['test_url'])
             response = opener.open(req, timeout=timeout)
@@ -487,6 +519,7 @@ def test_with_singbox(config_data, timeout):
         except Exception:
             pass
 
+        # Вторая попытка (fallback)
         try:
             req = urllib.request.Request(CONFIG['test_url_fallback'])
             response = opener.open(req, timeout=timeout)
@@ -498,15 +531,17 @@ def test_with_singbox(config_data, timeout):
             pass
 
         return False, None
+
     except Exception as error:
-        log(f"⚠️ Ошибка sing-box: {error}")
+        log(f"⚠️  Ошибка sing-box: {error}")
         return False, None
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.kill()
+        if process:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
         try:
             os.unlink(config_path)
         except Exception:
@@ -525,13 +560,15 @@ def test_with_xray(config_data, timeout):
         json.dump(config, config_file)
         config_path = config_file.name
 
+    process = None
     try:
         process = subprocess.Popen(
             [str(xray_path), 'run', '-c', config_path],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
-        time.sleep(1.0)
+
+        time.sleep(1.0)  # xray может стартовать чуть дольше
 
         if process.poll() is not None:
             return False, None
@@ -567,15 +604,17 @@ def test_with_xray(config_data, timeout):
             pass
 
         return False, None
+
     except Exception as error:
-        log(f"⚠️ Ошибка xray: {error}")
+        log(f"⚠️  Ошибка xray: {error}")
         return False, None
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.kill()
+        if process:
+            process.terminate()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                process.kill()
         try:
             os.unlink(config_path)
         except Exception:
@@ -585,28 +624,26 @@ def full_check(config_data):
     """Полная проверка конфигурации"""
     global stats
 
-    latency = None
+    tcp_latency = None
+    http_latency = None
 
-    # TCP проверка
     if CONFIG['check_tcp']:
         tcp_ok, tcp_latency = tcp_check(
             config_data['address'],
             config_data['port'],
             CONFIG['tcp_timeout']
         )
+
         if not tcp_ok:
             with stats_lock:
                 stats['failed'] += 1
             return None
+
         with stats_lock:
             stats['tcp_passed'] += 1
-        latency = tcp_latency
 
-    # HTTP проверка через ядра
     if CONFIG['check_http']:
         http_ok = False
-        http_latency = None
-
         if CONFIG['use_singbox']:
             http_ok, http_latency = test_with_singbox(config_data, CONFIG['http_timeout'])
         if not http_ok and CONFIG['use_xray']:
@@ -619,9 +656,11 @@ def full_check(config_data):
 
         with stats_lock:
             stats['http_passed'] += 1
-        latency = http_latency  # используем задержку из HTTP-проверки
 
-    return latency
+        return http_latency
+
+    # Если проверка HTTP отключена, возвращаем задержку TCP
+    return tcp_latency
 
 def is_blacklisted(config_data, blacklist):
     """Проверка на черный список"""
@@ -635,13 +674,14 @@ def is_sni_allowed(config_data, whitelist):
     """Проверка разрешенных SNI"""
     sni = config_data['params'].get('sni', '')
     host = config_data['params'].get('host', '')
+
     for domain in [sni, host]:
         if not domain:
             continue
         if domain in whitelist:
             return True
-        for allowed in whitelist:
-            if domain.endswith('.' + allowed):
+        for allowed_domain in whitelist:
+            if domain.endswith('.' + allowed_domain):
                 return True
     return False
 
@@ -649,12 +689,13 @@ def deduplicate_configs(configs):
     """Удаление дубликатов"""
     seen = set()
     unique = []
+
     for config in configs:
-        host = config['params'].get('host', config['address'])
-        key = f"{config['uuid']}:{config['address']}:{config['port']}:{host}"
+        key = f"{config['uuid']}:{config['address']}:{config['port']}"
         if key not in seen:
             seen.add(key)
             unique.append(config)
+
     log(f"🔄 Дедупликация: {len(configs)} -> {len(unique)}")
     return unique
 
@@ -662,21 +703,26 @@ def detect_operator(config_data):
     """Определение мобильного оператора"""
     sni = config_data['params'].get('sni', '')
     host = config_data['params'].get('host', '')
+
     for operator, domains in OPERATOR_SNI.items():
         for domain in domains:
             if domain in sni or domain in host:
                 return operator
     return 'unknown'
 
-def format_vless_line(config_data, latency=None):
+def format_vless_line(config_data, latency=None, country_flag='🏴'):
     """Форматирование итоговой VLESS ссылки"""
     name_parts = []
+
     if latency:
         name_parts.append(f"{int(latency)}ms")
+
     operator = detect_operator(config_data)
     if operator != 'unknown':
         name_parts.append(operator.capitalize())
-    name_parts.append("ОСТАТЬСЯ НА СВЯЗИ 🛜")
+
+    name_parts.append(f"{country_flag} {SUBSCRIPTION_NAME}")
+
     name = " | ".join(name_parts)
 
     params = []
@@ -688,27 +734,42 @@ def format_vless_line(config_data, latency=None):
     if params_string:
         url += f"?{params_string}"
     url += f"#{quote(name)}"
+
     return url
+
+def load_sources():
+    """Загрузка источников из source.txt"""
+    sources_file = Path('source.txt')
+    if sources_file.exists():
+        with open(sources_file, 'r', encoding='utf-8') as f:
+            urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+        log(f"📚 Загружено {len(urls)} источников из source.txt")
+        return urls
+    return []
 
 def collect_all_configs():
     """Сбор всех конфигураций из источников"""
     urls = list(SOURCES)
-    extra_sources = load_extra_lines('sources.txt')
+    extra_sources = load_sources()
     urls.extend(extra_sources)
+
     log(f"📚 Всего источников: {len(urls)}")
 
     all_links = []
-    for url in urls:
-        log(f"📥 Загрузка: {url[:70]}...")
+    for i, url in enumerate(urls, 1):
+        log(f"📥 [{i}/{len(urls)}] Загрузка: {url[:70]}...")
         content = fetch_url(url)
+
         if content:
             links = extract_vless_links(content)
+
             if not links:
                 decoded = base64_decode_safe(content)
                 if decoded:
                     links = extract_vless_links(decoded)
+
             all_links.extend(links)
-            log(f"  ✓ Найдено: {len(links)}")
+            log(f"  ✓ Найдено VLESS: {len(links)}")
 
     log(f"📊 Всего сырых ссылок: {len(all_links)}")
 
@@ -726,10 +787,9 @@ def main():
     start_time = time.time()
 
     log("=" * 70)
-    log("VLESS MegaParser с реальной HTTP-проверкой")
+    log(f"VLESS MegaParser - {SUBSCRIPTION_NAME}")
     log("=" * 70)
 
-    # Скачиваем и устанавливаем ядра
     log("🔧 Установка ядер...")
     singbox_path, xray_path = download_and_install_binaries()
 
@@ -741,7 +801,6 @@ def main():
     log(f"✓ Xray: {'найден' if xray_path else 'не найден'}")
     log("")
 
-    # Загружаем списки
     sni_whitelist = set(DEFAULT_SNI_WHITELIST)
     sni_whitelist.update(load_extra_lines('sni_whitelist.txt'))
 
@@ -752,10 +811,12 @@ def main():
     log(f"🚫 Blacklist: {len(blacklist)} паттернов")
     log("")
 
-    # Собираем конфигурации
     all_configs = collect_all_configs()
 
-    # Фильтрация
+    if not all_configs:
+        log("❌ Не найдено конфигураций!")
+        return
+
     log("🔍 Фильтрация...")
     filtered_configs = []
     for config in all_configs:
@@ -764,18 +825,16 @@ def main():
         if not is_sni_allowed(config, sni_whitelist):
             continue
         filtered_configs.append(config)
+
     log(f"✅ После фильтрации: {len(filtered_configs)}")
 
-    # Дедупликация
     unique_configs = deduplicate_configs(filtered_configs)
     log(f"🎯 Уникальных: {len(unique_configs)}")
 
-    # Ограничиваем количество
     final_configs = unique_configs[:CONFIG['max_configs']]
     log(f"📦 Финальных: {len(final_configs)}")
     log("")
 
-    # Проверка конфигураций
     log("🚀 Запуск проверки...")
     log("")
 
@@ -795,41 +854,45 @@ def main():
 
             try:
                 latency = future.result()
+
                 if latency is not None:
                     config['latency'] = latency
+                    country_flag = get_country_flag(config['address'])
+                    config['flag'] = country_flag
                     results.append(config)
+
                     operator = detect_operator(config)
-                    log(f"[{completed}/{total}] ✅ {config['address']}:{config['port']} - {int(latency)}ms {operator}")
+                    log(f"[{completed}/{total}] ✅ {country_flag} {config['address']}:{config['port']} - {int(latency)}ms {operator}")
                 else:
                     if completed % 10 == 0:
                         log(f"[{completed}/{total}] ⏳ Обработка...")
+
             except Exception as error:
                 log(f"[{completed}/{total}] ❌ Ошибка: {error}")
 
-    # Сортируем по задержке
     results.sort(key=lambda x: x.get('latency', 9999))
 
-    # Формируем итоговые строки
     output_lines = []
     for config in results:
-        line = format_vless_line(config, config.get('latency'))
+        line = format_vless_line(
+            config,
+            config.get('latency'),
+            config.get('flag', '🏴')
+        )
         output_lines.append(line)
 
-    # Сохраняем результаты
     output_file = "OSTATSYA_NA_SVYAZI.txt"
-    with open(output_file, 'w', encoding='utf-8') as file_handle:
-        file_handle.write('\n'.join(output_lines))
+    with open(output_file, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(output_lines))
 
-    # Base64 версия
     base64_content = base64.b64encode(
         '\n'.join(output_lines).encode('utf-8')
     ).decode('utf-8')
 
     base64_file = "OSTATSYA_NA_SVYAZI_base64.txt"
-    with open(base64_file, 'w', encoding='utf-8') as file_handle:
-        file_handle.write(base64_content)
+    with open(base64_file, 'w', encoding='utf-8') as f:
+        f.write(base64_content)
 
-    # Статистика
     runtime = time.time() - start_time
     statistics = {
         'timestamp': datetime.now().isoformat(),
@@ -841,13 +904,13 @@ def main():
         'tcp_passed': stats['tcp_passed'],
         'http_passed': stats['http_passed'],
         'failed': stats['failed'],
-        'runtime_seconds': round(runtime, 2)
+        'runtime_seconds': round(runtime, 2),
+        'subscription_name': SUBSCRIPTION_NAME
     }
 
-    with open('stats.json', 'w', encoding='utf-8') as file_handle:
-        json.dump(statistics, file_handle, indent=2, ensure_ascii=False)
+    with open('stats.json', 'w', encoding='utf-8') as f:
+        json.dump(statistics, f, indent=2, ensure_ascii=False)
 
-    # Вывод статистики
     log("")
     log("=" * 70)
     log("📊 СТАТИСТИКА")
@@ -862,14 +925,13 @@ def main():
     log(f"  - stats.json")
     log("=" * 70)
 
-    # Auto push
     if CONFIG['auto_push']:
         log("")
         log("📤 Push в GitHub...")
         os.system('git config user.name "github-actions[bot]"')
         os.system('git config user.email "github-actions[bot]@users.noreply.github.com"')
         os.system(f'git add "{output_file}" "{base64_file}" stats.json')
-        os.system('git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update VLESS configs with HTTP check"')
+        os.system('git diff --quiet && git diff --staged --quiet || git commit -m "Auto-update: ОСТАТЬСЯ НА СВЯЗИ 🛜"')
         os.system('git push')
         log("✓ Push завершен")
 
@@ -880,7 +942,7 @@ if __name__ == '__main__':
     try:
         main()
     except KeyboardInterrupt:
-        log("\n⚠️ Остановлено пользователем")
+        log("\n⚠️  Остановлено пользователем")
         sys.exit(0)
     except Exception as error:
         log(f"\n❌ Критическая ошибка: {error}")
