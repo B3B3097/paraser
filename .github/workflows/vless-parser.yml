@@ -5,23 +5,31 @@ on:
     - cron: '0 * * * *'
   workflow_dispatch:
     inputs:
-      concurrency:
-        description: 'Parallel TCP checks (default: 80)'
+      concurrency_tcp:
+        description: 'Stage 1 TCP concurrency (default: 80)'
         required: false
         default: '80'
-      timeout:
-        description: 'TCP timeout in seconds (default: 5)'
+      concurrency_xray:
+        description: 'Stage 3 Xray concurrency (default: 10)'
         required: false
-        default: '5'
+        default: '10'
+      xray_timeout:
+        description: 'Xray check timeout in seconds (default: 15)'
+        required: false
+        default: '15'
+      max_output:
+        description: 'Max working configs to output (default: 200)'
+        required: false
+        default: '200'
 
 permissions:
   contents: write
 
 jobs:
   parse-and-check:
-    name: Fetch, parse and check VLESS configs
+    name: Fetch → TCP → TLS → Xray → commit
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 110
 
     steps:
       - name: Checkout repository
@@ -32,14 +40,32 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Apply custom settings from workflow_dispatch
+      - name: Download Xray binary
+        run: |
+          echo "Fetching latest Xray release..."
+          XRAY_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest \
+            | grep '"tag_name"' | head -1 | cut -d'"' -f4)
+          echo "Xray version: $XRAY_VERSION"
+          curl -Lo /tmp/xray.zip \
+            "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/Xray-linux-64.zip"
+          unzip -o /tmp/xray.zip xray -d /tmp/
+          chmod +x /tmp/xray
+          /tmp/xray version
+          echo "XRAY_PATH=/tmp/xray" >> $GITHUB_ENV
+
+      - name: Apply custom parameters (workflow_dispatch only)
         if: github.event_name == 'workflow_dispatch'
         run: |
-          sed -i "s/^CONCURRENCY = .*/CONCURRENCY = ${{ github.event.inputs.concurrency }}/" parser.py
-          sed -i "s/^TCP_TIMEOUT = .*/TCP_TIMEOUT = ${{ github.event.inputs.timeout }}/" parser.py
+          sed -i "s/^TCP_CONCURRENCY = .*/TCP_CONCURRENCY = ${{ github.event.inputs.concurrency_tcp }}/" parser.py
+          sed -i "s/^XRAY_CONCURRENCY = .*/XRAY_CONCURRENCY = ${{ github.event.inputs.concurrency_xray }}/" parser.py
+          sed -i "s/^XRAY_TIMEOUT = .*/XRAY_TIMEOUT = ${{ github.event.inputs.xray_timeout }}/" parser.py
+          sed -i "s/^MAX_OUTPUT = .*/MAX_OUTPUT = ${{ github.event.inputs.max_output }}/" parser.py
 
-      - name: Run VLESS parser
+      - name: Run VLESS parser (TCP + TLS + Xray)
         run: python parser.py
+
+      - name: Show stats
+        run: cat stats.json
 
       - name: Commit updated configs
         run: |
@@ -49,10 +75,10 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit."
           else
-            WORKING=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['working'])")
+            FINAL=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['final_count'])")
             TOTAL=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['total_fetched'])")
-            RATE=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['success_rate'])")
-            git commit -m "chore: update configs - ${WORKING}/${TOTAL} working (${RATE}% ok) [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+            XRAY=$(python3 -c "import json; d=json.load(open('stats.json')); print('xray' if d['xray_used'] else 'tcp+tls')")
+            git commit -m "chore: ${FINAL} configs [${XRAY}] of ${TOTAL} parsed — $(date -u '+%Y-%m-%d %H:%M UTC')"
             git push
-            echo "Pushed ${WORKING} working configs."
+            echo "Pushed ${FINAL} working configs."
           fi
