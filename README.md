@@ -19,7 +19,7 @@
 
 ## 📲 Подпишись на канал
 
-### [![Telegram](https://img.shields.io/badge/-@httpsRemainingconnections-2CA5E0?style=flat-square&logo=telegram&logoColor=white&labelColor=229ED9&color=1B7BA3)](https://t.me/httpsRemainingconnections)
+### [![Telegram](https://img.shields.io/badge/-@Remainingconnections-2CA5E0?style=flat-square&logo=telegram&logoColor=white&labelColor=229ED9&color=1B7BA3)](https://t.me/httpsRemainingconnections)
 
 **Свежие конфиги, обновления и новости — в Telegram**
 
