@@ -6,7 +6,7 @@
 
 <br/>
 
-[![Telegram](https://img.shields.io/badge/Telegram-@httpsRemainingconnections-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/httpsRemainingconnections)
+[![Telegram](https://img.shields.io/badge/Telegram-@Remainingconnections-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/httpsRemainingconnections)
 [![Update](https://img.shields.io/badge/Обновление-каждый%20час-brightgreen?style=for-the-badge&logo=github-actions&logoColor=white)](../../actions/workflows/vless-parser.yml)
 [![Configs](https://img.shields.io/badge/Конфиги-200%20Xray%20%7C%20500%20TLS-blue?style=for-the-badge&logo=v2ray&logoColor=white)](./OSTATSYA_NA_SVYAZI.txt)
 [![Sources](https://img.shields.io/badge/Источники-500%2B-orange?style=for-the-badge&logo=rss&logoColor=white)](./source.txt)
