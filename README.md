@@ -211,7 +211,7 @@ https://yoursite.com/sub/token123                             ← подписк
 
 ## 🔗 Контакты
 
-[![Telegram Channel](https://img.shields.io/badge/Telegram%20Channel-@httpsRemainingconnections-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/httpsRemainingconnections)
+[![Telegram Channel](https://img.shields.io/badge/Telegram%20Channel-@httpsRemainingconnections-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Remainingconnections)
 
 **Подписывайся — там свежие конфиги и обновления!**
 
