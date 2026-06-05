@@ -18,9 +18,9 @@ on:
         required: false
         default: '80'
       xray_concurrency:
-        description: 'Stage 3 Xray parallel checks (default: 10)'
+        description: 'Stage 3 Xray parallel checks (default: 12)'
         required: false
-        default: '10'
+        default: '12'
       xray_timeout:
         description: 'Stage 3 Xray timeout seconds (default: 15)'
         required: false
@@ -31,7 +31,7 @@ permissions:
 
 jobs:
   parse-and-check:
-    name: "Fetch → TCP → TLS → White → Xray → commit"
+    name: "Fetch -> TCP -> TLS -> White -> Xray -> commit"
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -43,6 +43,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install Python dependencies
+        run: pip install --quiet 'requests[socks]'
 
       - name: Download Xray-core (latest release)
         run: |
@@ -91,14 +94,15 @@ jobs:
             stats.json
 
           if git diff --cached --quiet; then
-            echo "Nothing changed — skip commit."
+            echo "Nothing changed -- skip commit."
           else
             XRAY=$(python3  -c "import json; d=json.load(open('stats.json')); print(d['output_xray'])")
             TLS=$(python3   -c "import json; d=json.load(open('stats.json')); print(d['output_tcptls'])")
             WHITE=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['whitelisted_pool'])")
             TOTAL=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['total_fetched'])")
+            SPD=$(python3   -c "import json; d=json.load(open('stats.json')); print(d.get('avg_speed_mbps',0))")
             USED=$(python3  -c "import json; d=json.load(open('stats.json')); print('xray+tls+tcp' if d['xray_used'] else 'tls+tcp')")
-            git commit -m "chore: xray=${XRAY} tcptls=${TLS} white=${WHITE} of ${TOTAL} [${USED}] — $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git commit -m "chore: xray=${XRAY} tcptls=${TLS} white=${WHITE} of ${TOTAL} spd=${SPD}MB/s [${USED}] -- $(date -u '+%Y-%m-%d %H:%M UTC')"
             git pull --rebase origin main
             git push
           fi
