@@ -1,3 +1,4 @@
+FOUND: true
 #!/usr/bin/env python3
 """
 VLESS Config Parser & Checker — GitHub Actions edition
@@ -467,18 +468,37 @@ def is_tcptls(c: Checked) -> bool:
     if c.tls_ok is None and c.tcp_ok: return True
     return False
 
-def write_list(configs: list[Checked], fname: str, limit: int) -> int:
+def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = CONFIG_NAME) -> int:
     configs = sorted(configs, key=lambda c: c.latency)[:limit]
     print(f"  Geo lookup for {len(configs)} configs → {fname} ...")
     lines = []
     for i, c in enumerate(configs, 1):
         if i % 100 == 0: print(f"    {i}/{len(configs)}")
         lines.append(named_uri(c.cfg, get_flag(c.cfg.host)))
+
+    # Subscription metadata headers — read by Hiddify, Quantumult X, Stash, Nekobox and others.
+    # Must come BEFORE the config lines so clients detect them on the first pass.
+    ts  = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    # profile-title in plain UTF-8 (Hiddify, Nekobox) AND base64 (some iOS clients)
+    b64_name = base64.b64encode(sub_name.encode("utf-8")).decode("ascii")
+    header = (
+        f"# !name={sub_name}\n"                        # Quantumult X / Stash / Loon
+        f"# profile-title: base64:{b64_name}\n"        # Hiddify / Nekobox (header-in-body)
+        f"# !desc=Авто-обновление каждый час · {ts}\n"
+        f"# !url=https://raw.githubusercontent.com/B3B3097/paraser/main/{fname}\n"
+    )
+
+    full_content = header + "\n".join(lines) + "\n"
+
     with open(fname, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+        f.write(full_content)
+
+    # base64 file: encode the FULL content including headers
+    # (clients that auto-decode base64 will then see the metadata too)
     b64name = fname.replace(".txt", "_base64.txt")
     with open(b64name, "w", encoding="utf-8") as f:
-        f.write(base64.b64encode("\n".join(lines).encode()).decode() + "\n")
+        f.write(base64.b64encode(full_content.encode("utf-8")).decode("ascii") + "\n")
+
     return len(lines)
 
 # ═══════════════════════════ main ════════════════════════════════════════════
