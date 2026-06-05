@@ -1,12 +1,12 @@
 {
-  "updated_at": "2026-06-05T15:24:57.857937+00:00",
+  "updated_at": "2026-06-05T17:37:53.763391+00:00",
   "sources_count": 524,
-  "total_fetched": 145197,
-  "tcp_passing": 76880,
-  "tls_confirmed": 35712,
+  "total_fetched": 145832,
+  "tcp_passing": 77916,
+  "tls_confirmed": 36584,
   "xray_confirmed": 0,
   "output_xray": 200,
   "output_tcptls": 500,
   "xray_used": true,
-  "success_rate": 52.9
+  "success_rate": 53.4
 }
