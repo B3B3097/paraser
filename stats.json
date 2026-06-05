@@ -1,16 +1,12 @@
 {
-  "updated_at": "2026-06-05T07:18:52.115359+00:00",
+  "updated_at": "2026-06-05T15:24:57.857937+00:00",
   "sources_count": 524,
-  "total_fetched": 25691,
-  "tcp_passing": 15476,
-  "tls_passing": 7432,
-  "xray_passing": 0,
-  "final_count": 0,
-  "stage_counts": {
-    "tcp": 0,
-    "tls": 0,
-    "xray": 0
-  },
+  "total_fetched": 145197,
+  "tcp_passing": 76880,
+  "tls_confirmed": 35712,
+  "xray_confirmed": 0,
+  "output_xray": 200,
+  "output_tcptls": 500,
   "xray_used": true,
-  "success_rate": 0.0
+  "success_rate": 52.9
 }
