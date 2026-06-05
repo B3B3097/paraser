@@ -2,11 +2,11 @@
 
 # 🛜 ОСТАТЬСЯ НА СВЯЗИ
 
-<img src="://readme-typing-svg.demolab.com?font=Fira+Code&size=22&pause=1000&color=00D4FF&center=true&vCenter=true&width=600&lines=Автоматический+сборщик+VLESS+конфигов;Обновление+каждый+час+%F0%9F%94%84;TCP+%E2%86%92+TLS+%E2%86%92+Xray+проверка;Только+рабочие+конфиги+%E2%9C%85" alt="Typing SVG" />
+<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&pause=1000&color=00D4FF&center=true&vCenter=true&width=600&lines=Автоматический+сборщик+VLESS+конфигов;Обновление+каждый+час+%F0%9F%94%84;TCP+%E2%86%92+TLS+%E2%86%92+Xray+проверка;Только+рабочие+конфиги+%E2%9C%85" alt="Typing SVG" />
 
 <br/>
 
-[![Telegram](https://img.shields.io/badge/Telegram-@Remainingconnections-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/httpsRemainingconnections)
+[![Telegram](https://img.shields.io/badge/Telegram-@Remainingconnections-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Remainingconnections)
 [![Update](https://img.shields.io/badge/Обновление-каждый%20час-brightgreen?style=for-the-badge&logo=github-actions&logoColor=white)](../../actions/workflows/vless-parser.yml)
 [![Configs](https://img.shields.io/badge/Конфиги-200%20Xray%20%7C%20500%20TLS-blue?style=for-the-badge&logo=v2ray&logoColor=white)](./OSTATSYA_NA_SVYAZI.txt)
 [![Sources](https://img.shields.io/badge/Источники-500%2B-orange?style=for-the-badge&logo=rss&logoColor=white)](./source.txt)
@@ -19,7 +19,7 @@
 
 ## 📲 Подпишись на канал
 
-### [![Telegram](https://img.shields.io/badge/-@Remainingconnections-2CA5E0?style=flat-square&logo=telegram&logoColor=white&labelColor=229ED9&color=1B7BA3)](https://t.me/httpsRemainingconnections)
+### [![Telegram](https://img.shields.io/badge/-@Remainingconnections-2CA5E0?style=flat-square&logo=telegram&logoColor=white&labelColor=229ED9&color=1B7BA3)](https://t.me/Remainingconnections)
 
 **Свежие конфиги, обновления и новости — в Telegram**
 
@@ -211,7 +211,7 @@ https://yoursite.com/sub/token123                             ← подписк
 
 ## 🔗 Контакты
 
-[![Telegram Channel](https://img.shields.io/badge/Telegram%20Channel-@httpsRemainingconnections-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Remainingconnections)
+[![Telegram Channel](https://img.shields.io/badge/Telegram%20Channel-@Remainingconnections-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Remainingconnections)
 
 **Подписывайся — там свежие конфиги и обновления!**
 
