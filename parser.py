@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-VLESS Config Parser & Checker — GitHub Actions edition
-Fetch:  GitHub Tree API discovers ALL .txt config files in repos (no limit)
-Check:  Stage 1 TCP → Stage 2 TLS → Stage 3 Xray real connectivity
-White:  Bonus stage — configs whose SNI/IP matches whitelist_sni.txt / whitelist_cidr.txt
-        are sorted first in every subscription (most likely to work in Russia)
-Output: OSTATSYA_NA_SVYAZI.txt (top 200) + OSTATSYA_NA_SVYAZI_tcptls.txt (top 500)
-        Whitelisted configs appear at the top of each file.
+VLESS Config Parser & Checker — v6 (GitHub Actions)
+Stage 1: TCP  →  Stage 2: TLS  →  Stage 3: Xray real connect
+Bonus: whitelist SNI/IP check — white configs sorted first in every subscription
+Fixes in v6:
+  - REALITY configs: parse pbk/sid/fp, use realitySettings (not tlsSettings)
+  - flow field: omit if empty (older empty-string caused Xray rejection)
+  - Xray errors: capture stderr for first 3 failures → easier debugging
 """
 
 import asyncio, base64, ipaddress, json, os, random, re, socket, ssl
@@ -39,16 +39,19 @@ GH_TOKEN    = os.environ.get("GITHUB_TOKEN", "")
 
 @dataclass
 class Vless:
-    uuid: str
-    host: str
-    port: int
-    name: str
-    raw_uri: str
+    uuid:     str
+    host:     str
+    port:     int
+    name:     str
+    raw_uri:  str
     sni:      Optional[str] = None
     path:     Optional[str] = None
     network:  Optional[str] = None
     security: Optional[str] = None
     flow:     Optional[str] = None
+    pbk:      Optional[str] = None   # REALITY public key
+    sid:      Optional[str] = None   # REALITY short ID
+    fp:       Optional[str] = None   # TLS fingerprint
 
 @dataclass
 class Checked:
@@ -56,111 +59,105 @@ class Checked:
     tcp_ok:   bool           = False
     tls_ok:   Optional[bool] = None
     xray_ok:  Optional[bool] = None
-    white_ok: bool           = False   # matches whitelist SNI/IP
+    white_ok: bool           = False
     latency:  float          = 9999.0
     stage:    str            = "tcp"
 
-# ═══════════════════════════ whitelist ════════════════════════════════════════
+# ═══════════════════════════ whitelist ═══════════════════════════════════════
 
-_sni_set:   set[str]                       = set()
-_net_index: dict[int, list]                = {}   # /8 → list[ip_network]
+_sni_set:   set[str]        = set()
+_net_index: dict[int, list] = {}
 
 def _load_whitelist() -> tuple[int, int]:
-    """Load whitelist_sni.txt and whitelist_cidr.txt from repo root."""
     sni_count = net_count = 0
-
     try:
         with open("whitelist_sni.txt", encoding="utf-8") as f:
             for line in f:
                 d = line.strip().lower()
-                if d:
-                    _sni_set.add(d)
+                if d: _sni_set.add(d)
         sni_count = len(_sni_set)
     except FileNotFoundError:
-        print("  [WARN] whitelist_sni.txt not found — SNI whitelist disabled")
-
+        print("  [WARN] whitelist_sni.txt not found")
     try:
         with open("whitelist_cidr.txt", encoding="utf-8") as f:
             for line in f:
                 cidr = line.strip()
-                if not cidr:
-                    continue
+                if not cidr: continue
                 try:
-                    net = ipaddress.ip_network(cidr, strict=False)
+                    net   = ipaddress.ip_network(cidr, strict=False)
                     first = net.network_address.packed[0]
                     _net_index.setdefault(first, []).append(net)
                     net_count += 1
                 except ValueError:
                     pass
     except FileNotFoundError:
-        print("  [WARN] whitelist_cidr.txt not found — IP whitelist disabled")
-
+        print("  [WARN] whitelist_cidr.txt not found")
     return sni_count, net_count
 
 def _is_white_ip(host: str) -> bool:
     try:
-        addr = ipaddress.ip_address(host)
+        addr  = ipaddress.ip_address(host)
         first = addr.packed[0]
-        for net in _net_index.get(first, []):
-            if addr in net:
-                return True
+        return any(addr in net for net in _net_index.get(first, []))
     except ValueError:
-        pass
-    return False
+        return False
 
 def check_whitelist(cfg: Vless) -> bool:
-    """Return True if config SNI or host IP is in the whitelist."""
-    sni = (cfg.sni or "").lower()
+    sni  = (cfg.sni  or "").lower()
     host = cfg.host.lower()
-    if sni and sni in _sni_set:
-        return True
-    if host in _sni_set:
-        return True
-    if _is_white_ip(cfg.host):
-        return True
-    return False
+    if sni  and sni  in _sni_set: return True
+    if host and host in _sni_set: return True
+    return _is_white_ip(cfg.host)
 
-# ═══════════════════════════ vless parsing ════════════════════════════════════
+# ═══════════════════════════ vless parsing ═══════════════════════════════════
 
 def parse_uri(uri: str) -> Optional[Vless]:
     uri = uri.strip()
-    if not uri.startswith("vless://"):
-        return None
+    if not uri.startswith("vless://"): return None
     try:
         body = uri[8:]
         hi   = body.find("#")
         name = urllib.parse.unquote(body[hi+1:]) if hi >= 0 else ""
         main = body[:hi] if hi >= 0 else body
-
-        ai = main.find("@")
+        ai   = main.find("@")
         if ai < 0: return None
         uuid = main[:ai]
         rest = main[ai+1:]
-
-        qi = rest.find("?")
-        hp = rest[:qi] if qi >= 0 else rest
-        qs = rest[qi+1:] if qi >= 0 else ""
+        qi   = rest.find("?")
+        hp   = rest[:qi] if qi >= 0 else rest
+        qs   = rest[qi+1:] if qi >= 0 else ""
 
         if hp.startswith("["):
             cb = hp.find("]")
             if cb < 0: return None
-            host = hp[1:cb]
-            port = int(hp[cb+2:])
+            host = hp[1:cb]; port = int(hp[cb+2:])
         else:
             lc = hp.rfind(":")
             if lc < 0: return None
-            host = hp[:lc]
-            port = int(hp[lc+1:])
+            host = hp[:lc]; port = int(hp[lc+1:])
 
         if not host or not (1 <= port <= 65535): return None
         if not uuid or len(uuid) < 10: return None
 
-        p = dict(pair.split("=", 1) for pair in qs.split("&") if "=" in pair)
-        return Vless(uuid=uuid, host=host, port=port, name=name, raw_uri=uri,
-                     sni=p.get("sni"), path=p.get("path"),
-                     network=p.get("type") or p.get("network"),
-                     security=p.get("security") or p.get("tls"),
-                     flow=p.get("flow"))
+        p = {}
+        for pair in qs.split("&"):
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                p[k] = urllib.parse.unquote(v)
+
+        flow = p.get("flow") or None   # None if empty/missing
+
+        return Vless(
+            uuid=uuid, host=host, port=port, name=name, raw_uri=uri,
+            sni     = p.get("sni")                              or None,
+            path    = p.get("path")                             or None,
+            network = p.get("type") or p.get("network")        or None,
+            security= (p.get("security") or p.get("tls") or "").lower() or None,
+            flow    = flow,
+            pbk     = p.get("pbk")  or None,
+            sid     = p.get("sid")  or None,
+            fp      = p.get("fp")   or None,
+        )
     except Exception:
         return None
 
@@ -173,8 +170,7 @@ def extract_from_text(text: str) -> list[Vless]:
         if v:
             k = f"{v.uuid}@{v.host}:{v.port}"
             if k not in seen:
-                seen.add(k)
-                out.append(v)
+                seen.add(k); out.append(v)
     return out
 
 def try_b64(text: str) -> str:
@@ -186,7 +182,7 @@ def try_b64(text: str) -> str:
 
 # ═══════════════════════════ github url discovery ════════════════════════════
 
-_GH_HEADERS: dict = {"User-Agent": "vless-parser/4.0"}
+_GH_HEADERS: dict = {"User-Agent": "vless-parser/6.0"}
 if GH_TOKEN:
     _GH_HEADERS["Authorization"] = f"Bearer {GH_TOKEN}"
 
@@ -197,9 +193,8 @@ VLESS_KEYWORDS = [
 
 def _score_path(path: str) -> int:
     low = path.lower()
-    if not any(low.endswith(s) for s in (".txt", ".base64", ".list")):
-        return 0
-    score = sum(2 for kw in VLESS_KEYWORDS if kw in low)
+    if not any(low.endswith(s) for s in (".txt", ".base64", ".list", ".html")): return 0
+    score  = sum(2 for kw in VLESS_KEYWORDS if kw in low)
     score -= path.count("/")
     return score
 
@@ -217,15 +212,13 @@ def _gh_tree_candidates(owner: str, repo: str) -> list[str]:
             for item in data["tree"]:
                 if item.get("type") != "blob": continue
                 s = _score_path(item["path"])
-                if s > 0:
-                    scored.append((s, item["path"]))
+                if s > 0: scored.append((s, item["path"]))
             if not scored: continue
             scored.sort(key=lambda x: -x[0])
             base = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}"
             return [f"{base}/{path}" for _, path in scored]
         except Exception:
             continue
-
     candidates = []
     for branch in ("main", "master"):
         for fname in (
@@ -234,19 +227,17 @@ def _gh_tree_candidates(owner: str, repo: str) -> list[str]:
             "output/vless.txt","output/configs.txt","result/vless.txt",
             "data/vless.txt","subs/vless.txt","v2ray.txt","links.txt",
         ):
-            candidates.append(
-                f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{fname}"
-            )
+            candidates.append(f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{fname}")
     return candidates
 
 def resolve_urls(url: str) -> list[str]:
     if "raw.githubusercontent.com" in url: return [url]
     if url.startswith("://"): url = "https:" + url
     if not url.startswith("http"): url = "https://" + url
-    parsed = urllib.parse.urlparse(url)
+    parsed  = urllib.parse.urlparse(url)
     netloc  = parsed.netloc.lower()
     if netloc not in ("github.com", "www.github.com"): return [url]
-    parts = [p for p in parsed.path.strip("/").split("/") if p]
+    parts   = [p for p in parsed.path.strip("/").split("/") if p]
     if len(parts) < 2: return []
     owner, repo = parts[0], parts[1]
     if len(parts) > 3 and parts[2] in ("blob", "raw"):
@@ -291,16 +282,15 @@ def get_flag(host: str) -> str:
         )
         with urllib.request.urlopen(req, timeout=3) as resp:
             code = json.loads(resp.read()).get("countryCode", "")
-            f = _flag(code) if code else "🌐"
+            f    = _flag(code) if code else "🌐"
     except Exception:
         f = "🌐"
     _geo_cache[host] = f
     return f
 
 def named_uri(cfg: Vless, flag: str, white: bool) -> str:
-    # White configs get ⭐ prefix so they stand out in the client list
-    star  = "⭐ " if white else ""
-    name  = f"{star}{flag} {CONFIG_NAME}"
+    star = "⭐ " if white else ""
+    name = f"{star}{flag} {CONFIG_NAME}"
     return f"{cfg.raw_uri.split('#')[0]}#{urllib.parse.quote(name)}"
 
 # ═══════════════════════════ stage 1: tcp (async) ════════════════════════════
@@ -344,7 +334,8 @@ def _tls(host: str, port: int, sni: Optional[str], timeout: float) -> tuple[bool
         return False, (time.time() - t0) * 1000
 
 def _needs_tls(c: Checked) -> bool:
-    return c.cfg.security in ("tls", "reality") or c.cfg.port in (443, 8443, 2053, 2083, 2087, 2096)
+    if c.cfg.security in ("tls", "reality"): return True
+    return c.cfg.port in (443, 8443, 2053, 2083, 2087, 2096)
 
 def stage_tls(tcp_results: list[Checked]) -> list[Checked]:
     tls_cands  = [c for c in tcp_results if c.tcp_ok and _needs_tls(c)]
@@ -366,9 +357,11 @@ def stage_tls(tcp_results: list[Checked]) -> list[Checked]:
 # ═══════════════════════════ stage 3: xray (threaded) ════════════════════════
 
 def _xray_cfg(cfg: Vless, port: int) -> dict:
+    """Build Xray JSON config. Handles REALITY (realitySettings) and TLS correctly."""
     stream: dict = {}
     net = cfg.network or "tcp"
     stream["network"] = net
+
     if net == "ws":
         stream["wsSettings"] = {"path": cfg.path or "/"}
     elif net == "grpc":
@@ -377,29 +370,54 @@ def _xray_cfg(cfg: Vless, port: int) -> dict:
         stream["httpSettings"] = {"path": cfg.path or "/"}
     elif net in ("xhttp", "splithttp"):
         stream["xhttpSettings"] = {"path": cfg.path or "/", "mode": "auto"}
-    if cfg.security in ("tls", "reality"):
-        stream["security"] = cfg.security
-        stream["tlsSettings"] = {
-            "serverName": cfg.sni or cfg.host,
-            "allowInsecure": True,
-            "fingerprint": "chrome",
+
+    sec = cfg.security or ""
+    if sec == "reality":
+        stream["security"] = "reality"
+        stream["realitySettings"] = {
+            "serverName":  cfg.sni or cfg.host,
+            "fingerprint": cfg.fp  or "chrome",
+            "publicKey":   cfg.pbk or "",
+            "shortId":     cfg.sid or "",
         }
+    elif sec == "tls":
+        stream["security"] = "tls"
+        stream["tlsSettings"] = {
+            "serverName":    cfg.sni or cfg.host,
+            "allowInsecure": True,
+            "fingerprint":   cfg.fp  or "chrome",
+        }
+
+    # flow only when explicitly set (empty string breaks newer Xray)
+    user: dict = {"id": cfg.uuid, "encryption": "none"}
+    if cfg.flow:
+        user["flow"] = cfg.flow
+
     return {
         "log": {"loglevel": "none"},
-        "inbounds": [{"tag": "socks", "protocol": "socks", "listen": "127.0.0.1",
-                      "port": port, "settings": {"auth": "noauth", "udp": False}}],
+        "inbounds": [{
+            "tag": "socks", "protocol": "socks",
+            "listen": "127.0.0.1", "port": port,
+            "settings": {"auth": "noauth", "udp": False},
+        }],
         "outbounds": [
-            {"tag": "proxy", "protocol": "vless",
-             "settings": {"vnext": [{"address": cfg.host, "port": cfg.port,
-                "users": [{"id": cfg.uuid, "flow": cfg.flow or "", "encryption": "none"}]}]},
-             "streamSettings": stream},
+            {
+                "tag": "proxy", "protocol": "vless",
+                "settings": {"vnext": [{
+                    "address": cfg.host, "port": cfg.port,
+                    "users": [user],
+                }]},
+                "streamSettings": stream,
+            },
             {"tag": "direct", "protocol": "freedom"},
         ],
-        "routing": {"domainStrategy": "AsIs",
-                    "rules": [{"type": "field", "outboundTag": "proxy", "port": "0-65535"}]},
+        "routing": {
+            "domainStrategy": "AsIs",
+            "rules": [{"type": "field", "outboundTag": "proxy", "port": "0-65535"}],
+        },
     }
 
-def _wait_port(port: int, tries: int = 30, delay: float = 0.12) -> bool:
+def _wait_port(port: int, tries: int = 40, delay: float = 0.1) -> bool:
     for _ in range(tries):
         try:
             s = socket.create_connection(("127.0.0.1", port), timeout=0.1)
@@ -408,23 +426,45 @@ def _wait_port(port: int, tries: int = 30, delay: float = 0.12) -> bool:
             time.sleep(delay)
     return False
 
+# Track first few Xray errors for debugging
+_xray_errors: list[str] = []
+_xray_errors_lock = __import__("threading").Lock()
+
 def _xray_one(cfg: Vless, xray_bin: str) -> tuple[bool, float]:
     port = random.randint(20000, 59999)
     tmp  = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     try:
         json.dump(_xray_cfg(cfg, port), tmp); tmp.close()
-        proc = subprocess.Popen([xray_bin, "run", "-c", tmp.name],
-                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(
+            [xray_bin, "run", "-c", tmp.name],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        time.sleep(0.4)   # brief pause before port check
+
         if not _wait_port(port):
-            proc.terminate(); return False, 9999.0
+            proc.terminate()
+            try:
+                _, stderr_b = proc.communicate(timeout=2)
+                err = stderr_b.decode("utf-8", errors="ignore").strip()
+                with _xray_errors_lock:
+                    if len(_xray_errors) < 5 and err:
+                        # filter noise
+                        if not any(x in err for x in ("Penetrates", "[Warning]", "[Info]", "goroutine")):
+                            _xray_errors.append(err[:300])
+            except Exception:
+                pass
+            return False, 9999.0
+
         t0 = time.time()
         try:
             r = subprocess.run(
                 ["curl", "-s", "-o", "/dev/null", "-w", "%{http_code}",
                  "--proxy", f"socks5://127.0.0.1:{port}",
                  "--max-time", str(XRAY_TIMEOUT),
-                 "--connect-timeout", "5", TEST_URL],
-                capture_output=True, timeout=XRAY_TIMEOUT + 3, text=True)
+                 "--connect-timeout", "5",
+                 TEST_URL],
+                capture_output=True, timeout=XRAY_TIMEOUT + 3, text=True,
+            )
             ms = (time.time() - t0) * 1000
             return r.returncode == 0 and r.stdout.strip() == "204", ms
         except Exception:
@@ -450,8 +490,13 @@ def stage_xray(candidates: list[Checked], xray_bin: str) -> list[Checked]:
         for fut in as_completed(futures):
             done += 1
             if done % 25 == 0:
-                print(f"    Xray {done}/{len(candidates)} — confirmed: {sum(1 for x in out if x.xray_ok)}")
+                ok_cnt = sum(1 for x in out if x.xray_ok)
+                print(f"    Xray {done}/{len(candidates)} — confirmed: {ok_cnt}")
             out.append(fut.result())
+    if _xray_errors:
+        print("  [Xray sample errors]")
+        for e in _xray_errors:
+            print(f"    {e[:200]}")
     return out
 
 # ═══════════════════════════ helpers ═════════════════════════════════════════
@@ -469,11 +514,9 @@ def is_tcptls(c: Checked) -> bool:
     return False
 
 def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = CONFIG_NAME) -> int:
-    # Whitelisted configs first, then by latency
-    configs = sorted(configs, key=lambda c: (0 if c.white_ok else 1, c.latency))[:limit]
+    configs   = sorted(configs, key=lambda c: (0 if c.white_ok else 1, c.latency))[:limit]
     white_cnt = sum(1 for c in configs if c.white_ok)
-    print(f"  Geo lookup for {len(configs)} configs → {fname} (white: {white_cnt}) ...")
-
+    print(f"  Geo lookup for {len(configs)} → {fname} (white: {white_cnt}) ...")
     lines = []
     for i, c in enumerate(configs, 1):
         if i % 100 == 0: print(f"    {i}/{len(configs)}")
@@ -488,24 +531,20 @@ def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = C
         f"# !url=https://raw.githubusercontent.com/B3B3097/paraser/main/{fname}\n"
     )
     full = header + "\n".join(lines) + "\n"
-
-    with open(fname, "w", encoding="utf-8") as f:
-        f.write(full)
+    with open(fname, "w", encoding="utf-8") as f: f.write(full)
     b64fname = fname.replace(".txt", "_base64.txt")
     with open(b64fname, "w", encoding="utf-8") as f:
         f.write(base64.b64encode(full.encode("utf-8")).decode("ascii") + "\n")
-
     return len(lines)
 
 # ═══════════════════════════ main ════════════════════════════════════════════
 
 async def main() -> None:
-    print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}] VLESS Parser v5")
+    print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}] VLESS Parser v6")
     xray_ok = os.path.isfile(XRAY_PATH) and os.access(XRAY_PATH, os.X_OK)
     print(f"  Xray  : {'OK ' + XRAY_PATH if xray_ok else 'not found'}")
     print(f"  GitHub: {'authenticated' if GH_TOKEN else 'anonymous (60/h)'}")
 
-    # Load whitelist
     sni_cnt, net_cnt = _load_whitelist()
     print(f"  Whitelist: {sni_cnt} SNI domains + {net_cnt} CIDR blocks")
 
@@ -522,8 +561,8 @@ async def main() -> None:
             k = f"{v.uuid}@{v.host}:{v.port}"
             if k not in seen:
                 seen.add(k); all_cfgs.append(v); added += 1
-        if added or (i % 50 == 0):
-            print(f"  [{i:>3}/{len(sources)}] +{added:<5} total={len(all_cfgs):<7}  {url[:70]}")
+        if added or (i % 100 == 0):
+            print(f"  [{i:>4}/{len(sources)}] +{added:<5} total={len(all_cfgs):<7}  {url[:70]}")
 
     print(f"\n  Total unique VLESS configs: {len(all_cfgs)}")
     if not all_cfgs:
@@ -544,9 +583,9 @@ async def main() -> None:
     tcptls_pass   = sorted([c for c in tls_res if is_tcptls(c)], key=lambda c: c.latency)
     print(f"  TLS confirmed: {tls_confirmed}   TCP+TLS pool: {len(tcptls_pass)}")
 
-    # ── WHITELIST CHECK ───────────────────────────────────────────────────────
+    # ── WHITELIST ─────────────────────────────────────────────────────────────
     print(f"\n{'─'*60}")
-    print("Whitelist check (SNI domains + IP CIDR ranges)...")
+    print("Whitelist check...")
     for c in tcptls_pass:
         c.white_ok = check_whitelist(c.cfg)
     white_cnt = sum(1 for c in tcptls_pass if c.white_ok)
@@ -557,23 +596,27 @@ async def main() -> None:
     xray_res: list[Checked] = []
 
     if xray_ok:
-        # Prefer whitelisted configs for Xray testing, fill rest by latency
-        white_first = [c for c in tcptls_pass if c.white_ok]
-        others      = [c for c in tcptls_pass if not c.white_ok]
-        xray_input  = (white_first + others)[:600]
+        # Prefer whitelisted & TLS-confirmed configs for Xray testing
+        tls_white  = [c for c in tcptls_pass if c.white_ok and c.tls_ok]
+        tls_rest   = [c for c in tcptls_pass if not c.white_ok and c.tls_ok]
+        plain_rest = [c for c in tcptls_pass if not c.tls_ok]
+        xray_input = (tls_white + tls_rest + plain_rest)[:600]
         print(f"\n{'─'*60}")
         print(f"Stage 3 — Xray (conc={XRAY_CONCURRENCY}, timeout={XRAY_TIMEOUT}s)")
-        print(f"  Testing {len(xray_input)} candidates (incl. {len(white_first)} whitelisted)...")
+        print(f"  Testing {len(xray_input)} (tls_white={len(tls_white)} tls_rest={len(tls_rest)} plain={len(plain_rest[:600-len(tls_white)-len(tls_rest)])})")
         xray_res       = stage_xray(xray_input, XRAY_PATH)
         xray_confirmed = sum(1 for c in xray_res if c.xray_ok)
         print(f"  Xray confirmed: {xray_confirmed} / {len(xray_input)}")
     else:
         print("\n── Stage 3 skipped (no xray binary) ──")
 
-    # ── WRITE OUTPUT ──────────────────────────────────────────────────────────
+    # ── OUTPUT ────────────────────────────────────────────────────────────────
     print(f"\n{'─'*60}")
 
-    xray_pool = sorted([c for c in xray_res if c.xray_ok], key=lambda c: (0 if c.white_ok else 1, c.latency)) if xray_ok and xray_confirmed > 0 else tcptls_pass
+    if xray_ok and xray_confirmed > 0:
+        xray_pool = [c for c in xray_res if c.xray_ok]
+    else:
+        xray_pool = tcptls_pass
 
     n_xray   = write_list(xray_pool,   "OSTATSYA_NA_SVYAZI.txt",        MAX_XRAY)
     n_tcptls = write_list(tcptls_pass, "OSTATSYA_NA_SVYAZI_tcptls.txt", MAX_TCPTLS)
@@ -591,7 +634,8 @@ async def main() -> None:
         "output_xray":      n_xray,
         "output_tcptls":    n_tcptls,
         "xray_used":        xray_ok,
-        "success_rate":     round(len(tcp_pass) / len(all_cfgs) * 100, 1) if all_cfgs else 0,
+        "xray_fallback":    xray_ok and xray_confirmed == 0,
+        "success_rate":     round(len(tcp_pass)/len(all_cfgs)*100, 1) if all_cfgs else 0,
     }
     with open("stats.json", "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2, ensure_ascii=False)
@@ -599,7 +643,6 @@ async def main() -> None:
     print(f"""
   OSTATSYA_NA_SVYAZI.txt        — {n_xray} configs
   OSTATSYA_NA_SVYAZI_tcptls.txt — {n_tcptls} configs
-  stats.json
   Done. fetched={len(all_cfgs)} tcp={len(tcp_pass)} tls={tls_confirmed} xray={xray_confirmed} white={white_cnt}
 """)
 
