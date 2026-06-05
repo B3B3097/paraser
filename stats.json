@@ -1,9 +1,9 @@
 {
-  "updated_at": "2026-06-04T23:26:48.568013+00:00",
+  "updated_at": "2026-06-05T02:44:09.491398+00:00",
   "sources_count": 524,
-  "total_fetched": 26314,
-  "tcp_passing": 15829,
-  "tls_passing": 7679,
+  "total_fetched": 17854,
+  "tcp_passing": 11307,
+  "tls_passing": 5798,
   "xray_passing": 0,
   "final_count": 0,
   "stage_counts": {
