@@ -93,10 +93,13 @@ jobs:
           if git diff --cached --quiet; then
             echo "Nothing changed — skip commit."
           else
-            XRAY=$(python3   -c "import json; d=json.load(open('stats.json')); print(d['output_xray'])")
-            TLS=$(python3    -c "import json; d=json.load(open('stats.json')); print(d['output_tcptls'])")
-            TOTAL=$(python3  -c "import json; d=json.load(open('stats.json')); print(d['total_fetched'])")
-            USED=$(python3   -c "import json; d=json.load(open('stats.json')); print('xray+tls+tcp' if d['xray_used'] else 'tls+tcp')")
+            XRAY=$(python3  -c "import json; d=json.load(open('stats.json')); print(d['output_xray'])")
+            TLS=$(python3   -c "import json; d=json.load(open('stats.json')); print(d['output_tcptls'])")
+            TOTAL=$(python3 -c "import json; d=json.load(open('stats.json')); print(d['total_fetched'])")
+            USED=$(python3  -c "import json; d=json.load(open('stats.json')); print('xray+tls+tcp' if d['xray_used'] else 'tls+tcp')")
             git commit -m "chore: xray=${XRAY} tcptls=${TLS} of ${TOTAL} [${USED}] — $(date -u '+%Y-%m-%d %H:%M UTC')"
+            # pull --rebase before push: handles the case where another scheduled run
+            # committed while this run was executing (avoids "fetch first" rejection)
+            git pull --rebase origin main
             git push
           fi
