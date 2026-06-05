@@ -2,7 +2,7 @@
 
 # 🛜 ОСТАТЬСЯ НА СВЯЗИ
 
-<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&pause=1000&color=00D4FF&center=true&vCenter=true&width=600&lines=Автоматический+сборщик+VLESS+конфигов;Обновление+каждый+час+%F0%9F%94%84;TCP+%E2%86%92+TLS+%E2%86%92+Xray+проверка;Только+рабочие+конфиги+%E2%9C%85" alt="Typing SVG" />
+<img src="://readme-typing-svg.demolab.com?font=Fira+Code&size=22&pause=1000&color=00D4FF&center=true&vCenter=true&width=600&lines=Автоматический+сборщик+VLESS+конфигов;Обновление+каждый+час+%F0%9F%94%84;TCP+%E2%86%92+TLS+%E2%86%92+Xray+проверка;Только+рабочие+конфиги+%E2%9C%85" alt="Typing SVG" />
 
 <br/>
 
