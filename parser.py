@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 """
-VLESS Config Parser & Checker — v8 (GitHub Actions)
-Stage 1: TCP  →  Stage 2: TLS  →  Stage 3: Xray real connect
+VLESS Config Parser & Checker — v9 (GitHub Actions)
+Stage 1: TCP  →  Stage 2: TLS  →  Stage 3: sing-box (primary) + Xray (fallback)
 Bonus: whitelist SNI/IP check — white configs sorted first
 
-Changes in v8 vs v7:
-  - Stage 3 uses requests+socks5h (not curl) — DNS resolves through proxy
-  - Test URL: https://speed.cloudflare.com/__down?bytes=204800 (200 KB)
-  - Measures latency-to-first-byte AND download speed (MB/s)
-  - Streams response in 4 KB chunks (like the real Xray checker diagram)
-  - Fallback to http://cp.cloudflare.com/ if speed test fails
-  - speed_mbps stored per config, avg_speed in stats.json
-  - stdout=DEVNULL fix from v7 retained
-  - Thread-safe port allocator from v7 retained
+Changes in v9 vs v8:
+  - Stage 3 tries sing-box FIRST (better REALITY/flow support), Xray as fallback
+  - _singbox_cfg(): generates correct sing-box 1.x JSON (tls, utls, reality, transports)
+  - _run_core(): generic runner works with both cores (same port-wait / speed-test logic)
+  - _core_one(): sing-box → Xray fallback per config
+  - Checked.core field: tracks which binary confirmed the config
+  - stats.json: singbox_hits + xray_hits breakdown
 """
 
 import asyncio, base64, ipaddress, json, os, re, socket, ssl
 import subprocess, sys, tempfile, time, urllib.request, urllib.parse
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 from datetime import datetime, timezone
 
@@ -37,16 +35,17 @@ XRAY_CONCURRENCY = 12
 
 TCP_TIMEOUT   = 5
 TLS_TIMEOUT   = 8
-XRAY_TIMEOUT  = 15   # seconds for the full download
+XRAY_TIMEOUT  = 15
 FETCH_TIMEOUT = 20
 
-CONFIG_NAME   = "ОСТАТЬСЯ НА СВЯЗИ 🛜"
+CONFIG_NAME    = "ОСТАТЬСЯ НА СВЯЗИ 🛜"
 SPEED_TEST_URL = "https://speed.cloudflare.com/__down?bytes=204800"  # 200 KB
 FALLBACK_URL   = "http://cp.cloudflare.com/"
-CHUNK_SIZE     = 4096   # bytes
+CHUNK_SIZE     = 4096
 
-XRAY_PATH = os.environ.get("XRAY_PATH", "/tmp/xray")
-GH_TOKEN  = os.environ.get("GITHUB_TOKEN", "")
+XRAY_PATH    = os.environ.get("XRAY_PATH",    "/tmp/xray")
+SINGBOX_PATH = os.environ.get("SINGBOX_PATH", "/tmp/sing-box")
+GH_TOKEN     = os.environ.get("GITHUB_TOKEN", "")
 
 # ═══════════════════════════ data model ══════════════════════════════════════
 
@@ -76,6 +75,7 @@ class Checked:
     latency:    float          = 9999.0
     speed_mbps: float          = 0.0
     stage:      str            = "tcp"
+    core:       str            = ""        # "singbox" | "xray" | ""
 
 # ═══════════════════════════ whitelist ═══════════════════════════════════════
 
@@ -159,15 +159,13 @@ def parse_uri(uri: str) -> Optional[Vless]:
                 k, v = pair.split("=", 1)
                 p[k] = urllib.parse.unquote(v)
 
-        flow = p.get("flow") or None
-
         return Vless(
             uuid=uuid, host=host, port=port, name=name, raw_uri=uri,
             sni     = p.get("sni")                              or None,
             path    = p.get("path")                             or None,
             network = p.get("type") or p.get("network")        or None,
             security= (p.get("security") or p.get("tls") or "").lower() or None,
-            flow    = flow,
+            flow    = p.get("flow") or None,
             pbk     = p.get("pbk")  or None,
             sid     = p.get("sid")  or None,
             fp      = p.get("fp")   or None,
@@ -189,15 +187,14 @@ def extract_from_text(text: str) -> list[Vless]:
 
 def try_b64(text: str) -> str:
     try:
-        import base64 as _b64
-        d = _b64.b64decode(text.strip() + "==").decode("utf-8", errors="ignore")
+        d = base64.b64decode(text.strip() + "==").decode("utf-8", errors="ignore")
         if any(s in d for s in ("vless://", "vmess://", "trojan://")): return d
     except Exception: pass
     return text
 
 # ═══════════════════════════ github url discovery ════════════════════════════
 
-_GH_HEADERS: dict = {"User-Agent": "vless-parser/8.0"}
+_GH_HEADERS: dict = {"User-Agent": "vless-parser/9.0"}
 if GH_TOKEN:
     _GH_HEADERS["Authorization"] = f"Bearer {GH_TOKEN}"
 
@@ -291,7 +288,6 @@ def _flag(code: str) -> str:
 def get_flag(host: str) -> str:
     if host in _geo_cache: return _geo_cache[host]
     try:
-        import base64 as _b
         r = urllib.request.Request(
             f"http://ip-api.com/json/{host}?fields=countryCode",
             headers={"User-Agent": "Mozilla/5.0"},
@@ -370,7 +366,88 @@ def stage_tls(tcp_results: list[Checked]) -> list[Checked]:
             tls_out.append(res.result())
     return tls_out + plain_pass
 
-# ═══════════════════════════ stage 3: xray (threaded) ════════════════════════
+# ═══════════════════════════ stage 3: sing-box + xray ════════════════════════
+
+# ── sing-box config builder ───────────────────────────────────────────────────
+
+def _singbox_cfg(cfg: Vless, port: int) -> dict:
+    """Build sing-box 1.x JSON config for a VLESS outbound."""
+    outbound: dict = {
+        "type":    "vless",
+        "tag":     "proxy",
+        "server":  cfg.host,
+        "server_port": cfg.port,
+        "uuid":    cfg.uuid,
+    }
+
+    if cfg.flow:
+        outbound["flow"] = cfg.flow
+
+    sec = cfg.security or ""
+    if sec in ("tls", "reality"):
+        tls_obj: dict = {
+            "enabled":     True,
+            "server_name": cfg.sni or cfg.host,
+            "insecure":    True,
+            "utls": {
+                "enabled":     True,
+                "fingerprint": cfg.fp or "chrome",
+            },
+        }
+        if sec == "reality":
+            tls_obj["reality"] = {
+                "enabled":    True,
+                "public_key": cfg.pbk or "",
+                "short_id":   cfg.sid or "",
+            }
+        outbound["tls"] = tls_obj
+
+    net = cfg.network or "tcp"
+    if net == "ws":
+        outbound["transport"] = {
+            "type": "ws",
+            "path": cfg.path or "/",
+            "headers": {"Host": cfg.sni or cfg.host},
+        }
+    elif net == "grpc":
+        outbound["transport"] = {
+            "type":         "grpc",
+            "service_name": cfg.path or "",
+        }
+    elif net in ("h2", "http"):
+        outbound["transport"] = {
+            "type": "http",
+            "path": cfg.path or "/",
+            "host": [cfg.sni or cfg.host],
+        }
+    elif net in ("xhttp", "splithttp"):
+        outbound["transport"] = {
+            "type": "splithttp",
+            "path": cfg.path or "/",
+            "host": cfg.sni or cfg.host,
+        }
+    elif net == "httpupgrade":
+        outbound["transport"] = {
+            "type": "httpupgrade",
+            "path": cfg.path or "/",
+            "host": cfg.sni or cfg.host,
+        }
+
+    return {
+        "log": {"level": "warn"},
+        "inbounds": [{
+            "type":        "socks",
+            "listen":      "127.0.0.1",
+            "listen_port": port,
+        }],
+        "outbounds": [
+            outbound,
+            {"type": "direct", "tag": "direct"},
+        ],
+        "route": {"final": "proxy"},
+    }
+
+# ── xray config builder ───────────────────────────────────────────────────────
 
 def _xray_cfg(cfg: Vless, port: int) -> dict:
     stream: dict = {}
@@ -431,19 +508,18 @@ def _xray_cfg(cfg: Vless, port: int) -> dict:
         },
     }
 
-# ── Thread-safe port allocator ────────────────────────────────────────────────
-_port_lock    = threading.Lock()
-_port_val     = [21000]
-_PORT_MAX     = 50999
+# ── thread-safe port allocator ────────────────────────────────────────────────
+
+_port_lock = threading.Lock()
+_port_val  = [21000]
 
 def _alloc_port() -> int:
     with _port_lock:
         p = _port_val[0]
-        _port_val[0] = p + 1 if p < _PORT_MAX else 21000
+        _port_val[0] = p + 1 if p < 50999 else 21000
         return p
 
 def _wait_port(port: int, tries: int = 80, delay: float = 0.15) -> bool:
-    """Wait up to ~12 s for Xray to bind the SOCKS port."""
     for _ in range(tries):
         try:
             s = socket.create_connection(("127.0.0.1", port), timeout=0.15)
@@ -452,88 +528,86 @@ def _wait_port(port: int, tries: int = 80, delay: float = 0.15) -> bool:
             time.sleep(delay)
     return False
 
-_xray_errors: list[str] = []
-_xray_errors_lock = threading.Lock()
+# ── speed test via socks5h ────────────────────────────────────────────────────
 
 def _speed_test(port: int) -> tuple[bool, float, float]:
     """
-    Download 200 KB through Xray SOCKS5h proxy.
+    Download 200 KB via local SOCKS5h proxy.
+    socks5h = DNS resolves through the proxy (critical for many configs).
     Returns (ok, latency_to_first_byte_ms, speed_mbps).
-    DNS is resolved by Xray (socks5h), not locally.
     """
     proxies = {
         "http":  f"socks5h://127.0.0.1:{port}",
         "https": f"socks5h://127.0.0.1:{port}",
     }
-    # ── primary: Cloudflare 200 KB speed test ──────────────────────────────
     for url in (SPEED_TEST_URL, FALLBACK_URL):
         t_start = time.time()
         try:
             resp = req_lib.get(
-                url,
-                proxies=proxies,
-                stream=True,
-                timeout=(8, XRAY_TIMEOUT),   # (connect_timeout, read_timeout)
-                verify=False,
+                url, proxies=proxies, stream=True,
+                timeout=(8, XRAY_TIMEOUT), verify=False,
                 headers={"User-Agent": "Mozilla/5.0"},
                 allow_redirects=True,
             )
             if resp.status_code not in (200, 204):
-                resp.close()
-                continue
+                resp.close(); continue
 
-            t_first_byte = time.time()
-            latency_ms   = (t_first_byte - t_start) * 1000
-
+            t_first = time.time()
+            latency_ms = (t_first - t_start) * 1000
             downloaded = 0
             for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
                 downloaded += len(chunk)
 
             t_end    = time.time()
-            duration = t_end - t_first_byte
+            duration = t_end - t_first
             speed    = (downloaded / 1024 / 1024) / duration if duration > 0.01 else 0.0
-
             return True, latency_ms, speed
-
         except RequestException:
             continue
         except Exception:
             continue
-
     return False, 9999.0, 0.0
 
-def _xray_one(cfg: Vless, xray_bin: str) -> tuple[bool, float, float]:
-    """Returns (ok, latency_ms, speed_mbps)."""
-    # REALITY requires a valid public key
-    if cfg.security == "reality" and not cfg.pbk:
-        return False, 9999.0, 0.0
+# ── core runner (generic for both sing-box and xray) ─────────────────────────
 
+_core_errors: list[str] = []
+_core_errors_lock = threading.Lock()
+
+def _run_core(
+    cfg: Vless,
+    binary: str,
+    cfg_builder,          # callable: (Vless, int) -> dict
+    label: str,
+) -> tuple[bool, float, float]:
+    """
+    Start `binary` with a temp config, wait for SOCKS port, run speed test.
+    Returns (ok, latency_ms, speed_mbps).
+    """
     port = _alloc_port()
     tmp  = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     proc = None
     try:
-        json.dump(_xray_cfg(cfg, port), tmp); tmp.close()
+        json.dump(cfg_builder(cfg, port), tmp); tmp.close()
 
         proc = subprocess.Popen(
-            [xray_bin, "run", "-c", tmp.name],
-            stdout=subprocess.DEVNULL,   # must not pipe — avoids buffer deadlock
+            [binary, "run", "-c", tmp.name],
+            stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
         )
-        time.sleep(0.8)   # brief startup pause
+        time.sleep(0.8)
 
         if not _wait_port(port):
             _, stderr_b = (proc.communicate(timeout=3) if proc else (b"", b""))
-            err = stderr_b.decode("utf-8", errors="ignore").strip() if stderr_b else ""
-            with _xray_errors_lock:
-                if len(_xray_errors) < 10 and err:
-                    noise = ("Penetrates", "[Warning]", "[Info]", "goroutine",
-                             "accepted", "rejected", "dialing")
+            err = (stderr_b or b"").decode("utf-8", errors="ignore").strip()
+            with _core_errors_lock:
+                if len(_core_errors) < 10 and err:
+                    noise = ("Penetrates","[Warning]","[Info]","goroutine",
+                             "accepted","rejected","dialing","level=warn","level=info")
                     if not any(x in err for x in noise):
-                        _xray_errors.append(err[:300])
+                        _core_errors.append(f"[{label}] {err[:280]}")
             return False, 9999.0, 0.0
 
-        ok, latency_ms, speed_mbps = _speed_test(port)
-        return ok, latency_ms, speed_mbps
+        return _speed_test(port)
 
     finally:
         if proc:
@@ -546,16 +620,39 @@ def _xray_one(cfg: Vless, xray_bin: str) -> tuple[bool, float, float]:
         try: os.unlink(tmp.name)
         except: pass
 
-def stage_xray(candidates: list[Checked], xray_bin: str) -> list[Checked]:
+# ── per-config checker: sing-box first → xray fallback ───────────────────────
+
+def _core_one(cfg: Vless, sb_bin: Optional[str], xr_bin: Optional[str]) -> tuple[bool, float, float, str]:
+    """Returns (ok, latency_ms, speed_mbps, core_name)."""
+    # REALITY: public key is mandatory for both cores
+    if cfg.security == "reality" and not cfg.pbk:
+        return False, 9999.0, 0.0, ""
+
+    # ── try sing-box first ────────────────────────────────────────────────────
+    if sb_bin:
+        ok, lat, spd = _run_core(cfg, sb_bin, _singbox_cfg, "singbox")
+        if ok:
+            return True, lat, spd, "singbox"
+
+    # ── fallback: xray ────────────────────────────────────────────────────────
+    if xr_bin:
+        ok, lat, spd = _run_core(cfg, xr_bin, _xray_cfg, "xray")
+        if ok:
+            return True, lat, spd, "xray"
+
+    return False, 9999.0, 0.0, ""
+
+def stage_check(candidates: list[Checked], sb_bin: Optional[str], xr_bin: Optional[str]) -> list[Checked]:
     out: list[Checked] = []
     done = 0
 
     def one(c: Checked) -> Checked:
-        ok, latency_ms, speed_mbps = _xray_one(c.cfg, xray_bin)
+        ok, lat, spd, core = _core_one(c.cfg, sb_bin, xr_bin)
         c.xray_ok    = ok
-        c.speed_mbps = speed_mbps
+        c.speed_mbps = spd
+        c.core       = core
         if ok:
-            c.latency = latency_ms
+            c.latency = lat
             c.stage   = "xray"
         return c
 
@@ -567,15 +664,18 @@ def stage_xray(candidates: list[Checked], xray_bin: str) -> list[Checked]:
             out.append(res)
             if done % 20 == 0:
                 ok_cnt  = sum(1 for x in out if x.xray_ok)
+                sb_cnt  = sum(1 for x in out if x.core == "singbox")
+                xr_cnt  = sum(1 for x in out if x.core == "xray")
                 avg_spd = (
                     sum(x.speed_mbps for x in out if x.xray_ok) / ok_cnt
                     if ok_cnt else 0.0
                 )
-                print(f"    Xray {done}/{len(candidates)} — confirmed: {ok_cnt}  avg: {avg_spd:.2f} MB/s")
+                print(f"    [{done}/{len(candidates)}] confirmed={ok_cnt} "
+                      f"(sb={sb_cnt} xr={xr_cnt})  avg={avg_spd:.2f} MB/s")
 
-    if _xray_errors:
-        print(f"  [Xray sample errors — {len(_xray_errors)} captured]")
-        for e in _xray_errors[:5]:
+    if _core_errors:
+        print(f"  [Core errors — {len(_core_errors)} captured]")
+        for e in _core_errors[:5]:
             print(f"    {e[:200]}")
     return out
 
@@ -594,8 +694,6 @@ def is_tcptls(c: Checked) -> bool:
     return False
 
 def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = CONFIG_NAME) -> int:
-    import base64 as _b64
-    # Sort: white first, then by latency
     configs   = sorted(configs, key=lambda c: (0 if c.white_ok else 1, c.latency))[:limit]
     white_cnt = sum(1 for c in configs if c.white_ok)
     print(f"  Geo lookup for {len(configs)} → {fname} (white: {white_cnt}) ...")
@@ -605,7 +703,7 @@ def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = C
         lines.append(named_uri(c.cfg, get_flag(c.cfg.host), c.white_ok))
 
     ts       = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    b64_name = _b64.b64encode(sub_name.encode("utf-8")).decode("ascii")
+    b64_name = base64.b64encode(sub_name.encode("utf-8")).decode("ascii")
     header   = (
         f"# !name={sub_name}\n"
         f"# profile-title: base64:{b64_name}\n"
@@ -616,24 +714,32 @@ def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = C
     with open(fname, "w", encoding="utf-8") as f: f.write(full)
     b64fname = fname.replace(".txt", "_base64.txt")
     with open(b64fname, "w", encoding="utf-8") as f:
-        f.write(_b64.b64encode(full.encode("utf-8")).decode("ascii") + "\n")
+        f.write(base64.b64encode(full.encode("utf-8")).decode("ascii") + "\n")
     return len(lines)
 
 # ═══════════════════════════ main ════════════════════════════════════════════
 
 async def main() -> None:
-    import base64 as _b64
-    print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}] VLESS Parser v8")
-    xray_ok = os.path.isfile(XRAY_PATH) and os.access(XRAY_PATH, os.X_OK)
-    print(f"  Xray   : {'OK ' + XRAY_PATH if xray_ok else 'not found — stage 3 skipped'}")
-    print(f"  GitHub : {'authenticated' if GH_TOKEN else 'anonymous (60/h)'}")
-    print(f"  Test   : {SPEED_TEST_URL}")
+    print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}] VLESS Parser v9")
+
+    sb_ok = os.path.isfile(SINGBOX_PATH) and os.access(SINGBOX_PATH, os.X_OK)
+    xr_ok = os.path.isfile(XRAY_PATH)    and os.access(XRAY_PATH, os.X_OK)
+
+    sb_bin = SINGBOX_PATH if sb_ok else None
+    xr_bin = XRAY_PATH    if xr_ok else None
+
+    print(f"  sing-box : {'OK ' + SINGBOX_PATH if sb_ok else 'not found'}")
+    print(f"  xray     : {'OK ' + XRAY_PATH    if xr_ok else 'not found'}")
+    if not sb_ok and not xr_ok:
+        print("  [WARN] No proxy core available — Stage 3 will be skipped")
+    print(f"  GitHub   : {'authenticated' if GH_TOKEN else 'anonymous (60/h)'}")
+    print(f"  Test URL : {SPEED_TEST_URL}")
 
     sni_cnt, net_cnt = _load_whitelist()
     print(f"  Whitelist: {sni_cnt} SNI domains + {net_cnt} CIDR blocks")
 
     sources = read_sources()
-    print(f"  Sources: {len(sources)}\n")
+    print(f"  Sources  : {len(sources)}\n")
 
     # ── FETCH ─────────────────────────────────────────────────────────────────
     all_cfgs: list[Vless] = []
@@ -675,50 +781,56 @@ async def main() -> None:
     white_cnt = sum(1 for c in tcptls_pass if c.white_ok)
     print(f"  Whitelisted: {white_cnt} / {len(tcptls_pass)}")
 
-    # ── STAGE 3: XRAY ─────────────────────────────────────────────────────────
-    xray_confirmed = 0
-    avg_speed_mbps = 0.0
-    xray_res: list[Checked] = []
+    # ── STAGE 3: sing-box + xray ───────────────────────────────────────────────
+    confirmed    = 0
+    singbox_hits = 0
+    xray_hits    = 0
+    avg_speed    = 0.0
+    check_res: list[Checked] = []
 
-    if xray_ok:
-        # Priority order: whitelisted+TLS → plain TLS → TCP-only
-        # Skip REALITY configs missing pbk before submitting
-        def xray_valid(c: Checked) -> bool:
+    if sb_ok or xr_ok:
+        def core_valid(c: Checked) -> bool:
             return not (c.cfg.security == "reality" and not c.cfg.pbk)
 
-        tls_white  = [c for c in tcptls_pass if c.white_ok and c.tls_ok  and xray_valid(c)]
-        tls_rest   = [c for c in tcptls_pass if not c.white_ok and c.tls_ok and xray_valid(c)]
-        plain_rest = [c for c in tcptls_pass if not c.tls_ok              and xray_valid(c)]
-        xray_input = (tls_white + tls_rest + plain_rest)[:600]
+        tls_white  = [c for c in tcptls_pass if c.white_ok and c.tls_ok  and core_valid(c)]
+        tls_rest   = [c for c in tcptls_pass if not c.white_ok and c.tls_ok and core_valid(c)]
+        plain_rest = [c for c in tcptls_pass if not c.tls_ok              and core_valid(c)]
+        check_input = (tls_white + tls_rest + plain_rest)[:600]
 
+        cores_str = " + ".join(filter(None, [
+            "sing-box" if sb_ok else "",
+            "xray"     if xr_ok else "",
+        ]))
         print(f"\n{'─'*60}")
-        print(f"Stage 3 — Xray (conc={XRAY_CONCURRENCY}, timeout={XRAY_TIMEOUT}s)")
-        print(f"  Testing {len(xray_input)}  "
+        print(f"Stage 3 — {cores_str}  (conc={XRAY_CONCURRENCY}, timeout={XRAY_TIMEOUT}s)")
+        print(f"  Testing {len(check_input)}  "
               f"(tls_white={len(tls_white)}  tls_rest={len(tls_rest)}  plain={len(plain_rest)})")
         print(f"  Method: requests socks5h → {SPEED_TEST_URL}")
 
-        xray_res       = stage_xray(xray_input, XRAY_PATH)
-        xray_confirmed = sum(1 for c in xray_res if c.xray_ok)
-        if xray_confirmed > 0:
-            avg_speed_mbps = sum(c.speed_mbps for c in xray_res if c.xray_ok) / xray_confirmed
-        print(f"  Xray confirmed: {xray_confirmed} / {len(xray_input)}   "
-              f"avg speed: {avg_speed_mbps:.2f} MB/s")
+        check_res    = stage_check(check_input, sb_bin, xr_bin)
+        confirmed    = sum(1 for c in check_res if c.xray_ok)
+        singbox_hits = sum(1 for c in check_res if c.core == "singbox")
+        xray_hits    = sum(1 for c in check_res if c.core == "xray")
+        if confirmed:
+            avg_speed = sum(c.speed_mbps for c in check_res if c.xray_ok) / confirmed
+
+        print(f"  Confirmed: {confirmed}  (sing-box={singbox_hits}, xray={xray_hits})  "
+              f"avg speed: {avg_speed:.2f} MB/s")
     else:
-        print("\n── Stage 3 skipped (no xray binary) ──")
+        print("\n── Stage 3 skipped (no proxy core available) ──")
 
     # ── OUTPUT ────────────────────────────────────────────────────────────────
     print(f"\n{'─'*60}")
 
-    if xray_ok and xray_confirmed > 0:
-        # Sort confirmed by speed DESC (fastest first) then latency ASC
+    if confirmed > 0:
         xray_pool = sorted(
-            [c for c in xray_res if c.xray_ok],
+            [c for c in check_res if c.xray_ok],
             key=lambda c: (-c.speed_mbps, c.latency),
         )
     else:
         xray_pool = tcptls_pass
-        if xray_ok:
-            print("  [WARN] Xray confirmed 0 — falling back to TCP+TLS pool")
+        if sb_ok or xr_ok:
+            print("  [WARN] Confirmed 0 — falling back to TCP+TLS pool")
 
     n_xray   = write_list(xray_pool,   "OSTATSYA_NA_SVYAZI.txt",        MAX_XRAY)
     n_tcptls = write_list(tcptls_pass, "OSTATSYA_NA_SVYAZI_tcptls.txt", MAX_TCPTLS)
@@ -729,25 +841,31 @@ async def main() -> None:
         "total_fetched":    len(all_cfgs),
         "tcp_passing":      len(tcp_pass),
         "tls_confirmed":    tls_confirmed,
-        "xray_confirmed":   xray_confirmed,
-        "avg_speed_mbps":   round(avg_speed_mbps, 3),
+        "xray_confirmed":   confirmed,
+        "singbox_hits":     singbox_hits,
+        "xray_hits":        xray_hits,
+        "avg_speed_mbps":   round(avg_speed, 3),
         "whitelist_sni":    sni_cnt,
         "whitelist_cidr":   net_cnt,
         "whitelisted_pool": white_cnt,
         "output_xray":      n_xray,
         "output_tcptls":    n_tcptls,
-        "xray_used":        xray_ok,
-        "xray_fallback":    xray_ok and xray_confirmed == 0,
+        "singbox_used":     sb_ok,
+        "xray_used":        xr_ok,
+        "xray_fallback":    (sb_ok or xr_ok) and confirmed == 0,
         "success_rate":     round(len(tcp_pass)/len(all_cfgs)*100, 1) if all_cfgs else 0,
     }
     with open("stats.json", "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2, ensure_ascii=False)
 
-    xray_label = f"(xray-verified, avg {avg_speed_mbps:.2f} MB/s)" if xray_confirmed > 0 else "(tcp+tls fallback)"
+    label = (
+        f"(sing-box={singbox_hits} xray={xray_hits}, avg {avg_speed:.2f} MB/s)"
+        if confirmed > 0 else "(tcp+tls fallback)"
+    )
     print(f"""
-  OSTATSYA_NA_SVYAZI.txt        — {n_xray} configs  {xray_label}
+  OSTATSYA_NA_SVYAZI.txt        — {n_xray} configs  {label}
   OSTATSYA_NA_SVYAZI_tcptls.txt — {n_tcptls} configs
-  Done. fetched={len(all_cfgs)} tcp={len(tcp_pass)} tls={tls_confirmed} xray={xray_confirmed} white={white_cnt} avg_spd={avg_speed_mbps:.2f}MB/s
+  Done. fetched={len(all_cfgs)} tcp={len(tcp_pass)} tls={tls_confirmed} confirmed={confirmed} white={white_cnt}
 """)
 
 if __name__ == "__main__":
