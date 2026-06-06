@@ -1,17 +1,17 @@
 {
-  "updated_at": "2026-06-06T05:25:47.666787+00:00",
+  "updated_at": "2026-06-06T08:40:41.521991+00:00",
   "sources_count": 3621,
-  "total_fetched": 233638,
-  "tcp_passing": 123487,
-  "tls_confirmed": 48402,
+  "total_fetched": 231457,
+  "tcp_passing": 121892,
+  "tls_confirmed": 46947,
   "xray_confirmed": 0,
   "avg_speed_mbps": 0.0,
   "whitelist_sni": 23836,
   "whitelist_cidr": 28247,
-  "whitelisted_pool": 15149,
+  "whitelisted_pool": 14164,
   "output_xray": 200,
   "output_tcptls": 500,
   "xray_used": true,
   "xray_fallback": true,
-  "success_rate": 52.9
+  "success_rate": 52.7
 }
