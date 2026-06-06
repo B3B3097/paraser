@@ -1,4 +1,3 @@
-SHA: 3e659cb9cafcba547b0bfdda054382e3948c9cf7
 #!/usr/bin/env python3
 """
 VLESS Config Parser & Checker — v10 (GitHub Actions)
