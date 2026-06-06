@@ -1,6 +1,7 @@
+SHA: 3e659cb9cafcba547b0bfdda054382e3948c9cf7
 #!/usr/bin/env python3
 """
-VLESS Config Parser & Checker — v9 (GitHub Actions)
+VLESS Config Parser & Checker — v10 (GitHub Actions)
 Stage 1: TCP  →  Stage 2: TLS  →  Stage 3: sing-box (primary) + Xray (fallback)
 Bonus: whitelist SNI/IP check — white configs sorted first
 
@@ -39,8 +40,10 @@ XRAY_TIMEOUT  = 15
 FETCH_TIMEOUT = 20
 
 CONFIG_NAME    = "ОСТАТЬСЯ НА СВЯЗИ 🛜"
-SPEED_TEST_URL = "https://speed.cloudflare.com/__down?bytes=204800"  # 200 KB
+SPEED_TEST_URL = "https://speed.cloudflare.com/__down?bytes=1048576"  # 1 MB — точнее 200KB
 FALLBACK_URL   = "http://cp.cloudflare.com/"
+FALLBACK_URL2  = "http://speedtest.tele2.net/1MB.zip"
+MIN_SPEED_MBPS = 0.05   # минимум ~50 KB/s — фильтр мёртвых конфигов
 CHUNK_SIZE     = 4096
 
 XRAY_PATH    = os.environ.get("XRAY_PATH",    "/tmp/xray")
@@ -300,9 +303,10 @@ def get_flag(host: str) -> str:
     _geo_cache[host] = f
     return f
 
-def named_uri(cfg: Vless, flag: str, white: bool) -> str:
+def named_uri(cfg: Vless, flag: str, white: bool, speed_mbps: float = 0.0) -> str:
     star = "⭐ " if white else ""
-    name = f"{star}{flag} {CONFIG_NAME}"
+    spd  = f" {speed_mbps:.1f}MB/s" if speed_mbps >= MIN_SPEED_MBPS else ""
+    name = f"{star}{flag}{spd} {CONFIG_NAME}"
     return f"{cfg.raw_uri.split('#')[0]}#{urllib.parse.quote(name)}"
 
 # ═══════════════════════════ stage 1: tcp (async) ════════════════════════════
@@ -540,7 +544,7 @@ def _speed_test(port: int) -> tuple[bool, float, float]:
         "http":  f"socks5h://127.0.0.1:{port}",
         "https": f"socks5h://127.0.0.1:{port}",
     }
-    for url in (SPEED_TEST_URL, FALLBACK_URL):
+    for url in (SPEED_TEST_URL, FALLBACK_URL, FALLBACK_URL2):
         t_start = time.time()
         try:
             resp = req_lib.get(
@@ -631,13 +635,13 @@ def _core_one(cfg: Vless, sb_bin: Optional[str], xr_bin: Optional[str]) -> tuple
     # ── try sing-box first ────────────────────────────────────────────────────
     if sb_bin:
         ok, lat, spd = _run_core(cfg, sb_bin, _singbox_cfg, "singbox")
-        if ok:
+        if ok and spd >= MIN_SPEED_MBPS:
             return True, lat, spd, "singbox"
 
     # ── fallback: xray ────────────────────────────────────────────────────────
     if xr_bin:
         ok, lat, spd = _run_core(cfg, xr_bin, _xray_cfg, "xray")
-        if ok:
+        if ok and spd >= MIN_SPEED_MBPS:
             return True, lat, spd, "xray"
 
     return False, 9999.0, 0.0, ""
@@ -694,13 +698,18 @@ def is_tcptls(c: Checked) -> bool:
     return False
 
 def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = CONFIG_NAME) -> int:
-    configs   = sorted(configs, key=lambda c: (0 if c.white_ok else 1, c.latency))[:limit]
+    # Сортируем: сначала whitelisted, потом по скорости (если есть) иначе по latency
+    has_speed = any(c.speed_mbps >= MIN_SPEED_MBPS for c in configs)
+    if has_speed:
+        configs = sorted(configs, key=lambda c: (0 if c.white_ok else 1, -c.speed_mbps))[:limit]
+    else:
+        configs = sorted(configs, key=lambda c: (0 if c.white_ok else 1, c.latency))[:limit]
     white_cnt = sum(1 for c in configs if c.white_ok)
-    print(f"  Geo lookup for {len(configs)} → {fname} (white: {white_cnt}) ...")
+    print(f"  Geo lookup for {len(configs)} → {fname} (white: {white_cnt}, speed_sorted={has_speed}) ...")
     lines = []
     for i, c in enumerate(configs, 1):
         if i % 100 == 0: print(f"    {i}/{len(configs)}")
-        lines.append(named_uri(c.cfg, get_flag(c.cfg.host), c.white_ok))
+        lines.append(named_uri(c.cfg, get_flag(c.cfg.host), c.white_ok, c.speed_mbps))
 
     ts       = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     b64_name = base64.b64encode(sub_name.encode("utf-8")).decode("ascii")
@@ -720,7 +729,7 @@ def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = C
 # ═══════════════════════════ main ════════════════════════════════════════════
 
 async def main() -> None:
-    print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}] VLESS Parser v9")
+    print(f"[{datetime.now(timezone.utc):%Y-%m-%d %H:%M UTC}] VLESS Parser v10")
 
     sb_ok = os.path.isfile(SINGBOX_PATH) and os.access(SINGBOX_PATH, os.X_OK)
     xr_ok = os.path.isfile(XRAY_PATH)    and os.access(XRAY_PATH, os.X_OK)
@@ -870,3 +879,4 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
