@@ -1,0 +1,54 @@
+name: OSTATSYA NA SVYAZI - Hourly Update
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: xray-config-checker
+  cancel-in-progress: true
+
+jobs:
+  run-checker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run checker
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 checker.py
+
+      - name: Commit and push results
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -f v2ray_sub.txt valid_internet_links.txt valid_whitelist_links.txt 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "Net izmenenij"
+            exit 0
+          fi
+          INTERNET=$(wc -l < valid_internet_links.txt 2>/dev/null || echo 0)
+          WHITELIST=$(wc -l < valid_whitelist_links.txt 2>/dev/null || echo 0)
+          TOTAL=$((INTERNET + WHITELIST))
+          git commit -m "chore: update configs internet=${INTERNET} whitelist=${WHITELIST} total=${TOTAL} -- $(date -u \"+%Y-%m-%d %H:%M UTC\")"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
