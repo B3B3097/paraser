@@ -14,29 +14,58 @@ import zipfile
 import tarfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
-from urllib.parse import parse_qsl, quote, unquote, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 import socket
 
 import requests
 
-from config import INTERNET_SUBS_POOL, WHITELISTED_SUBS_POOL, CONCURRENT_THREADS_CHECK_DEFAULT, INTERNET_CFGS_COUNT, WHITELISTED_CFGS_COUNT, MAX_LINKS_TO_CHECK_INTERNET, MAX_LINKS_TO_CHECK_WHITELIST
+from config import (
+    INTERNET_SUBS_POOL, WHITELISTED_SUBS_POOL,
+    CONCURRENT_THREADS_CHECK_DEFAULT,
+    INTERNET_CFGS_COUNT, WHITELISTED_CFGS_COUNT,
+    MAX_LINKS_TO_CHECK_INTERNET, MAX_LINKS_TO_CHECK_WHITELIST,
+)
 
+# ─── Параметры проверки ───────────────────────────────────────────────────────
 TEST_CONNECT_TIMEOUT = 2
-TEST_READ_TIMEOUT = 4
+TEST_READ_TIMEOUT    = 4
 TEST_URL = "https://speed.cloudflare.com/__down?bytes=204800"
-SOCKS_PORT_MIN = 20000
-CONCURRENT_DEFAULT = CONCURRENT_THREADS_CHECK_DEFAULT
+SOCKS_PORT_MIN        = 20000
+CONCURRENT_DEFAULT    = CONCURRENT_THREADS_CHECK_DEFAULT
 MIN_XRAY_START_TIMEOUT = 1.0
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR  = os.path.dirname(os.path.abspath(__file__))
 XRAY_BIN_DIR = os.path.join(PROJECT_DIR, "xray_bin")
 
-GH_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+GH_TOKEN   = os.environ.get("GITHUB_TOKEN", "")
 _GH_HEADERS = {"User-Agent": "vless-checker/2.0"}
 if GH_TOKEN:
     _GH_HEADERS["Authorization"] = f"Bearer {GH_TOKEN}"
 
+# ─── ТСПУ / DPI bypass константы ─────────────────────────────────────────────
+# Июнь 2026: «Siberian» — три сигнала (AND-логика)
+# Сигнал 1: подозрительная подсеть (Selectel, Яндекс.Облако и др.)
+# Сигнал 2: подозрительный TLS-фингерпринт (Chrome, Safari, iOS)
+# Сигнал 3: >3 параллельных TLS к одному SNI менее чем за 100 мс → mux на клиенте!
+#
+# Мы закрываем Сигнал 1 и Сигнал 2 на стороне подписки:
+#   • патчим fp= → firefox/edge
+#   • деприоритизируем серверы на заблокированных AS
+
+# Фингерпринты, активирующие Сигнал 2 ТСПУ
+TPSU_BAD_FP  = {"chrome", "safari", "ios", "random", "chrome_auto"}
+# Предпочтительный порядок замены
+TPSU_GOOD_FP = ["firefox", "edge", "chrome106", "android", "360"]
+
+# ASN провайдеров, попадающих под Сигнал 1 (Selectel, Яндекс.Облако)
+TPSU_BLOCKED_ASNS = {
+    "AS197695", "AS47764", "AS210079", "AS60604",  # Selectel
+    "AS200350", "AS13238",                          # Яндекс / Яндекс.Облако
+}
+
+
+# ─── Утилиты Xray ─────────────────────────────────────────────────────────────
 def get_xray_download_url() -> str:
     os_type = platform.system().lower()
     arch = platform.machine().lower()
@@ -61,6 +90,7 @@ def get_xray_download_url() -> str:
         raise RuntimeError(f"Не удалось получить данные о релизах Xray: {e}")
     raise RuntimeError(f"Не найдена сборка Xray для вашей системы: {os_name} ({arch_name})")
 
+
 def setup_xray_bin() -> str:
     os_ext = ".exe" if sys.platform == "win32" else ""
     xray_path = os.path.join(XRAY_BIN_DIR, f"xray{os_ext}")
@@ -77,7 +107,7 @@ def setup_xray_bin() -> str:
             shutil.copyfileobj(response, out_file)
         print("[*] Распаковка ядра...")
         if download_url.endswith(".zip"):
-            with zipfile.ZipFile(tmp_file, 'r') as zip_ref: zip_ref.extractall(XRAY_BIN_DIR)
+            with zipfile.ZipFile(tmp_file, "r") as zip_ref: zip_ref.extractall(XRAY_BIN_DIR)
         elif download_url.endswith((".tar.gz", ".tgz")):
             with tarfile.open(tmp_file, "r:gz") as tar_ref: tar_ref.extractall(XRAY_BIN_DIR)
         if sys.platform != "win32" and os.path.exists(xray_path):
@@ -87,6 +117,8 @@ def setup_xray_bin() -> str:
     finally:
         if os.path.exists(tmp_file): os.remove(tmp_file)
 
+
+# ─── Парсеры ссылок ────────────────────────────────────────────────────────────
 def _json_query_value(value: str) -> dict | None:
     try:
         parsed = json.loads(value)
@@ -94,10 +126,12 @@ def _json_query_value(value: str) -> dict | None:
         return None
     return parsed if isinstance(parsed, dict) else None
 
+
 def _decode_base64_text(value: str) -> str:
     value = value.strip()
     value += "=" * (-len(value) % 4)
     return base64.urlsafe_b64decode(value).decode("utf-8", errors="replace")
+
 
 def _build_stream_settings(query: dict) -> dict:
     network = query.get("type", "tcp")
@@ -108,6 +142,7 @@ def _build_stream_settings(query: dict) -> dict:
     _add_transport_settings(stream_settings, query)
     _add_security_settings(stream_settings, query)
     return stream_settings
+
 
 def _add_transport_settings(stream_settings: dict, query: dict) -> None:
     network = stream_settings["network"]
@@ -161,6 +196,7 @@ def _add_transport_settings(stream_settings: dict, query: dict) -> None:
         if path: httpupgrade_settings["path"] = path
         if httpupgrade_settings: stream_settings["httpupgradeSettings"] = httpupgrade_settings
 
+
 def _add_security_settings(stream_settings: dict, query: dict) -> None:
     security = stream_settings.get("security")
     if security == "reality":
@@ -176,6 +212,7 @@ def _add_security_settings(stream_settings: dict, query: dict) -> None:
         if query.get("alpn"): tls_settings["alpn"] = [item for item in query["alpn"].split(",") if item]
         if query.get("allowInsecure"): tls_settings["allowInsecure"] = query["allowInsecure"].lower() == "true"
         if tls_settings: stream_settings["tlsSettings"] = tls_settings
+
 
 def _parse_vless_link(link: str) -> tuple[str, dict] | None:
     try:
@@ -196,6 +233,7 @@ def _parse_vless_link(link: str) -> tuple[str, dict] | None:
     }
     return remark, outbound
 
+
 def _parse_trojan_link(link: str) -> tuple[str, dict] | None:
     try:
         parsed = urlsplit(link)
@@ -212,6 +250,7 @@ def _parse_trojan_link(link: str) -> tuple[str, dict] | None:
         "streamSettings": _build_stream_settings(query),
     }
     return remark, outbound
+
 
 def _parse_shadowsocks_link(link: str) -> tuple[str, dict] | None:
     try:
@@ -234,6 +273,7 @@ def _parse_shadowsocks_link(link: str) -> tuple[str, dict] | None:
         "settings": {"servers": [{"address": parsed.hostname, "port": port, "method": method, "password": password}]},
     }
     return remark, outbound
+
 
 def _parse_vmess_link(link: str) -> tuple[str, dict] | None:
     try:
@@ -262,7 +302,8 @@ def _parse_vmess_link(link: str) -> tuple[str, dict] | None:
     }
     return config.get("ps") or "Untitled", outbound
 
-def convert_link_via_xray(link: str, xray_path: str | None = None) -> tuple[str, dict] | None:
+
+def convert_link_via_xray(link: str) -> tuple[str, dict] | None:
     link = link.strip()
     if not link: return None
     if link.startswith("vless://"): return _parse_vless_link(link)
@@ -271,6 +312,79 @@ def convert_link_via_xray(link: str, xray_path: str | None = None) -> tuple[str,
     if link.startswith("vmess://"): return _parse_vmess_link(link)
     return None
 
+
+# ─── ТСПУ: патч fingerprint в URL ─────────────────────────────────────────────
+def _patch_link_fp(link: str) -> str:
+    """
+    Патчит TLS-фингерпринт в ссылке.
+    ТСПУ «Siberian» (июнь 2026): chrome/safari/ios активируют Сигнал 2 → блокировка.
+    Заменяем на firefox — наименее подозрительный, широко используется.
+    """
+    if not link:
+        return link
+
+    if link.startswith("vmess://"):
+        try:
+            raw = _decode_base64_text(link.removeprefix("vmess://"))
+            cfg = json.loads(raw)
+            fp = cfg.get("fp", "")
+            if fp.lower() in TPSU_BAD_FP:
+                cfg["fp"] = TPSU_GOOD_FP[0]
+                encoded = base64.urlsafe_b64encode(
+                    json.dumps(cfg, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+                ).decode("ascii").rstrip("=")
+                return f"vmess://{encoded}"
+        except Exception:
+            pass
+        return link
+
+    # vless:// / trojan://
+    try:
+        parsed = urlsplit(link)
+        query  = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        fp = query.get("fp", "").lower()
+        if fp in TPSU_BAD_FP and fp != "":
+            query["fp"] = TPSU_GOOD_FP[0]
+            new_query = urlencode(query)
+            return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query, parsed.fragment))
+    except Exception:
+        pass
+    return link
+
+
+def _tpsu_link_score(link: str) -> int:
+    """
+    Оценка ТСПУ-«безопасности» ссылки:
+      +2 — уже хороший fingerprint (firefox/edge/chrome106/android)
+       0 — нет fp вообще (не VLESS/TLS)
+      -2 — плохой fingerprint (chrome/safari/ios/random)
+      +1 — REALITY (наиболее стойкий транспорт)
+    Используется для предварительной сортировки перед проверкой.
+    """
+    score = 0
+    try:
+        if link.startswith("vmess://"):
+            raw = _decode_base64_text(link.removeprefix("vmess://"))
+            cfg = json.loads(raw)
+            fp = cfg.get("fp", "").lower()
+        else:
+            parsed = urlsplit(link)
+            query  = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            fp = query.get("fp", "").lower()
+            sec = query.get("security", "").lower()
+            if sec == "reality":
+                score += 1
+
+        if fp in TPSU_GOOD_FP:
+            score += 2
+        elif fp in TPSU_BAD_FP:
+            score -= 2
+    except Exception:
+        pass
+    return score
+
+
+# ─── Проверка конфига через Xray ───────────────────────────────────────────────
 def wait_for_port(port: int, timeout: float = 1.0) -> bool:
     start_time = time.perf_counter()
     while time.perf_counter() - start_time < timeout:
@@ -281,30 +395,30 @@ def wait_for_port(port: int, timeout: float = 1.0) -> bool:
             time.sleep(0.05)
     return False
 
+
 def check_single_config(outbound: dict, port: int, xray_path: str) -> tuple[float, float]:
     config = {
         "log": {"loglevel": "error"},
         "inbounds": [{"listen": "127.0.0.1", "port": port, "protocol": "socks", "settings": {"udp": True}}],
-        "outbounds": [outbound, {"protocol": "freedom", "tag": "direct"}]
+        "outbounds": [outbound, {"protocol": "freedom", "tag": "direct"}],
     }
     fd, config_path = tempfile.mkstemp(suffix=".json")
     try:
-        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(config, f)
         flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
         proc = subprocess.Popen(
             [xray_path, "run", "-config", config_path],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags,
         )
         if not wait_for_port(port, timeout=MIN_XRAY_START_TIMEOUT):
-            if proc.poll() is None:
-                proc.terminate(); proc.wait()
-            return float('inf'), 0.0
+            if proc.poll() is None: proc.terminate(); proc.wait()
+            return float("inf"), 0.0
         if proc.poll() is not None:
-            return float('inf'), 0.0
+            return float("inf"), 0.0
         proxies = {"http": f"socks5h://127.0.0.1:{port}", "https": f"socks5h://127.0.0.1:{port}"}
         t0 = time.perf_counter()
-        latency = float('inf')
+        latency = float("inf")
         downloaded_bytes = 0
         t_start_download = None
         try:
@@ -315,7 +429,7 @@ def check_single_config(outbound: dict, port: int, xray_path: str) -> tuple[floa
                 stream=True,
             ) as r:
                 if r.status_code >= 400:
-                    return float('inf'), 0.0
+                    return float("inf"), 0.0
                 t_first_byte = time.perf_counter()
                 latency = (t_first_byte - t0) * 1000
                 t_start_download = time.perf_counter()
@@ -323,10 +437,9 @@ def check_single_config(outbound: dict, port: int, xray_path: str) -> tuple[floa
                     if chunk: downloaded_bytes += len(chunk)
                 t_end_download = time.perf_counter()
         except Exception:
-            return float('inf'), 0.0
+            return float("inf"), 0.0
         finally:
-            if proc.poll() is None:
-                proc.terminate(); proc.wait()
+            if proc.poll() is None: proc.terminate(); proc.wait()
         if t_start_download and downloaded_bytes > 0:
             download_duration = t_end_download - t_start_download
             if download_duration > 0:
@@ -335,8 +448,178 @@ def check_single_config(outbound: dict, port: int, xray_path: str) -> tuple[floa
     finally:
         try: os.unlink(config_path)
         except OSError: pass
-    return float('inf'), 0.0
+    return float("inf"), 0.0
 
+
+def check_configs(links: list[tuple[str, dict, str]], xray_path: str) -> list[tuple[float, float, str, str]]:
+    valid_configs = []
+    links = [item for item in links if item is not None]
+    if not links:
+        return valid_configs
+    with ThreadPoolExecutor(max_workers=CONCURRENT_DEFAULT) as executor:
+        futures = {
+            executor.submit(check_single_config, outbound, SOCKS_PORT_MIN + idx, xray_path): (remark, original_link)
+            for idx, (remark, outbound, original_link) in enumerate(links)
+        }
+        for future in as_completed(futures):
+            remark, link = futures[future]
+            try:
+                latency, speed = future.result()
+                if latency != float("inf") and speed > 0:
+                    speed_str = f"{speed / 1024:.2f} MB/s" if speed >= 1024 else f"{speed:.0f} KB/s"
+                    print(f"  [OK] {remark:<30} | Скор: {speed_str:<10} | Зад: {int(latency)} мс")
+                    valid_configs.append((speed, latency, remark, link))
+                else:
+                    print(f"  [FAIL] {remark:<30}")
+            except Exception as e:
+                print(f"  [ОШИБКА] {remark}: {e}")
+    valid_configs.sort(key=lambda x: x[0], reverse=True)
+    return valid_configs
+
+
+def parse_proxy_links(raw_links: list[str]) -> list[tuple[str, dict, str]]:
+    parsed_links = []
+    for link in raw_links:
+        parsed = convert_link_via_xray(link)
+        if parsed is None:
+            continue
+        remark, outbound = parsed
+        parsed_links.append((remark, outbound, link))
+    return parsed_links
+
+
+def save_results(links: list[str], output_path: str) -> None:
+    with open(output_path, "w", encoding="utf-8") as f:
+        for link in links:
+            f.write(f"{link}\n")
+
+
+# ─── Гео / провайдер ──────────────────────────────────────────────────────────
+@lru_cache(maxsize=2048)
+def detect_ip_info(address: str) -> tuple[str, str]:
+    """
+    Возвращает (country_code, asn_str).
+    asn_str вида "AS197695" или "" если не определён.
+    Результат кешируется — повторных запросов к ipwho.is не будет.
+    """
+    try:
+        ip = socket.gethostbyname(address)
+    except Exception:
+        return "Unknown", ""
+    try:
+        r = requests.get(f"https://ipwho.is/{ip}", timeout=5)
+        data = r.json()
+        if not data.get("success", False):
+            return "Unknown", ""
+        country = data.get("country_code") or "Unknown"
+        asn_raw = data.get("connection", {}).get("asn", "")
+        asn = f"AS{asn_raw}" if asn_raw else ""
+        return country, asn
+    except Exception:
+        return "Unknown", ""
+
+
+def detect_country(address: str) -> str:
+    country, _ = detect_ip_info(address)
+    return country
+
+
+def is_tpsu_blocked_provider(address: str) -> bool:
+    """
+    Возвращает True если сервер стоит на AS под Сигналом 1 ТСПУ
+    (Selectel, Яндекс.Облако и аналогичные).
+    """
+    _, asn = detect_ip_info(address)
+    return asn in TPSU_BLOCKED_ASNS
+
+
+def get_country_emoji(country_code: str) -> str:
+    if country_code == "Unknown":
+        return "❓"
+    try:
+        return chr(127397 + ord(country_code[0])) + chr(127397 + ord(country_code[1]))
+    except Exception:
+        return "❓"
+
+
+def get_link_address(link: str) -> str:
+    parsed = convert_link_via_xray(link)
+    if parsed is None:
+        return ""
+    _, outbound = parsed
+    settings = outbound.get("settings", {})
+    if outbound.get("protocol") in ("vless", "vmess"):
+        vnext = settings.get("vnext") or []
+        return vnext[0].get("address", "") if vnext else ""
+    servers = settings.get("servers") or []
+    return servers[0].get("address", "") if servers else ""
+
+
+def set_link_remark(link: str, remark: str) -> str:
+    if link.startswith("vmess://"):
+        try:
+            config = json.loads(_decode_base64_text(link.removeprefix("vmess://")))
+            config["ps"] = remark
+            encoded = base64.urlsafe_b64encode(
+                json.dumps(config, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            ).decode("ascii").rstrip("=")
+            return f"vmess://{encoded}"
+        except Exception:
+            return link
+    try:
+        parsed = urlsplit(link)
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, quote(remark, safe="")))
+    except Exception:
+        return link
+
+
+def add_country_to_remarks(
+    valid_links: list[tuple[float, float, str, str]],
+    prefix: str,
+) -> list[tuple[float, float, str, str]]:
+    """
+    Переименовывает конфиги, добавляя страну и скорость.
+    Заодно:
+      • патчит fingerprint → firefox (ТСПУ Сигнал 2)
+      • помечает конфиги на заблокированных AS тегом ⚠️
+    """
+    renamed_links = []
+    blocked_count = 0
+    patched_fp_count = 0
+
+    for idx, (speed, latency, _remark, link) in enumerate(valid_links, 1):
+        address = get_link_address(link)
+        country, asn = detect_ip_info(address)
+        country_emoji = get_country_emoji(country)
+
+        # Проверяем Сигнал 1 ТСПУ
+        is_blocked = asn in TPSU_BLOCKED_ASNS
+        if is_blocked:
+            blocked_count += 1
+            warning = "⚠️ "
+        else:
+            warning = ""
+
+        # Патчим fingerprint (Сигнал 2 ТСПУ)
+        original_link = link
+        patched_link = _patch_link_fp(link)
+        if patched_link != original_link:
+            patched_fp_count += 1
+            link = patched_link
+
+        speed_str = f"{speed / 1024:.1f}MB/s" if speed >= 1024 else f"{speed:.0f}KB/s"
+        new_remark = f"{warning}{country_emoji} {prefix}#{idx} {speed_str} {latency:.0f}ms"
+        renamed_links.append((speed, latency, new_remark, set_link_remark(link, new_remark)))
+
+    if patched_fp_count:
+        print(f"  [ТСПУ] Fingerprint исправлен (chrome→firefox): {patched_fp_count} конфигов")
+    if blocked_count:
+        print(f"  [ТСПУ] Помечено ⚠️  конфигов на Selectel/Яндекс AS: {blocked_count}")
+
+    return renamed_links
+
+
+# ─── GitHub / source.txt ──────────────────────────────────────────────────────
 def _gh_tree_raw_urls(repo_url: str) -> list[str]:
     """Для GitHub-репозитория возвращает список raw-URL файлов с прокси."""
     try:
@@ -349,7 +632,7 @@ def _gh_tree_raw_urls(repo_url: str) -> list[str]:
     except Exception:
         return []
 
-    VLESS_KEYWORDS = ["vless","vmess","trojan","proxy","config","sub","node","free","vpn","server","link","bypass","rkn","clash"]
+    VLESS_KEYWORDS = ["vless", "vmess", "trojan", "proxy", "config", "sub", "node", "free", "vpn", "server", "link", "bypass", "rkn", "clash"]
 
     def score_path(path: str) -> int:
         low = path.lower()
@@ -391,6 +674,7 @@ def _gh_tree_raw_urls(repo_url: str) -> list[str]:
             results.append(f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{fname}")
     return results
 
+
 def parse_subscription(source: str | None) -> list[str]:
     """Загружает подписку по ссылке или разбирает сырую строку."""
     if not source:
@@ -420,14 +704,15 @@ def parse_subscription(source: str | None) -> list[str]:
     if not source.startswith(("vless://", "vmess://", "trojan://", "ss://")):
         try:
             missing_padding = len(source) % 4
-            if missing_padding: source += '=' * (4 - missing_padding)
+            if missing_padding: source += "=" * (4 - missing_padding)
             source = base64.b64decode(source).decode("utf-8", errors="replace")
         except Exception:
             pass
 
     source = html.unescape(source)
-    pattern = re.compile(r"(?:vless|vmess|trojan|ss)://[^\s<>'\"]+")
+    pattern = re.compile(r"(?:vless|vmess|trojan|ss)://[^\s<>\'\"]+")
     return [match.group(0).strip() for match in pattern.finditer(source)]
+
 
 def load_sources_txt() -> list[str]:
     """Читает source.txt и возвращает список URL-источников."""
@@ -446,117 +731,21 @@ def load_sources_txt() -> list[str]:
     print(f"[+] source.txt: загружено {len(urls)} источников")
     return urls
 
-def check_configs(links: list[tuple[str, dict, str]], xray_path: str) -> list[tuple[float, float, str, str]]:
-    valid_configs = []
-    links = [item for item in links if item is not None]
-    if not links:
-        return valid_configs
-    with ThreadPoolExecutor(max_workers=CONCURRENT_DEFAULT) as executor:
-        futures = {
-            executor.submit(check_single_config, outbound, SOCKS_PORT_MIN + idx, xray_path): (remark, original_link)
-            for idx, (remark, outbound, original_link) in enumerate(links)
-        }
-        for future in as_completed(futures):
-            remark, link = futures[future]
-            try:
-                latency, speed = future.result()
-                if latency != float('inf') and speed > 0:
-                    speed_str = f"{speed / 1024:.2f} MB/s" if speed >= 1024 else f"{speed:.0f} KB/s"
-                    print(f"  [OK] {remark:<30} | Скор: {speed_str:<10} | Зад: {int(latency)} мс")
-                    valid_configs.append((speed, latency, remark, link))
-                else:
-                    print(f"  [FAIL] {remark:<30}")
-            except Exception as e:
-                print(f"  [ОШИБКА] {remark}: {e}")
-    valid_configs.sort(key=lambda x: x[0], reverse=True)
-    return valid_configs
 
-def parse_proxy_links(raw_links: list[str]) -> list[tuple[str, dict, str]]:
-    parsed_links = []
-    for link in raw_links:
-        parsed = convert_link_via_xray(link)
-        if parsed is None:
-            continue
-        remark, outbound = parsed
-        parsed_links.append((remark, outbound, link))
-    return parsed_links
-
-def save_results(links: list[str], output_path: str) -> None:
-    with open(output_path, "w", encoding="utf-8") as f:
-        for link in links:
-            f.write(f"{link}\n")
-
-@lru_cache(maxsize=2048)
-def detect_country(address: str) -> str:
-    try:
-        ip = socket.gethostbyname(address)
-    except Exception:
-        return "Unknown"
-    try:
-        r = requests.get(f"https://ipwho.is/{ip}", timeout=5)
-        data = r.json()
-        if not data.get("success", False):
-            return "Unknown"
-        return data.get("country_code") or "Unknown"
-    except Exception:
-        return "Unknown"
-
-def get_country_emoji(country_code: str) -> str:
-    if country_code == "Unknown":
-        return "❓"
-    try:
-        return chr(127397 + ord(country_code[0])) + chr(127397 + ord(country_code[1]))
-    except Exception:
-        return "❓"
-
-def get_link_address(link: str) -> str:
-    parsed = convert_link_via_xray(link)
-    if parsed is None:
-        return ""
-    _, outbound = parsed
-    settings = outbound.get("settings", {})
-    if outbound.get("protocol") in ("vless", "vmess"):
-        vnext = settings.get("vnext") or []
-        return vnext[0].get("address", "") if vnext else ""
-    servers = settings.get("servers") or []
-    return servers[0].get("address", "") if servers else ""
-
-def set_link_remark(link: str, remark: str) -> str:
-    if link.startswith("vmess://"):
-        try:
-            config = json.loads(_decode_base64_text(link.removeprefix("vmess://")))
-            config["ps"] = remark
-            encoded = base64.urlsafe_b64encode(
-                json.dumps(config, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-            ).decode("ascii").rstrip("=")
-            return f"vmess://{encoded}"
-        except Exception:
-            return link
-    try:
-        parsed = urlsplit(link)
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, parsed.query, quote(remark, safe="")))
-    except Exception:
-        return link
-
-def add_country_to_remarks(valid_links: list[tuple[float, float, str, str]], prefix: str) -> list[tuple[float, float, str, str]]:
-    renamed_links = []
-    for idx, (speed, latency, _remark, link) in enumerate(valid_links, 1):
-        address = get_link_address(link)
-        country = detect_country(address)
-        country_emoji = get_country_emoji(country)
-        speed_str = f"{speed / 1024:.1f}MB/s" if speed >= 1024 else f"{speed:.0f}KB/s"
-        new_remark = f"{country_emoji} {prefix}#{idx} {speed_str} {latency:.0f}ms"
-        renamed_links.append((speed, latency, new_remark, set_link_remark(link, new_remark)))
-    return renamed_links
-
+# ─── main ──────────────────────────────────────────────────────────────────────
 def main():
+    print("=" * 60)
+    print("  ОСТАТЬСЯ НА СВЯЗИ — Автоматический чекер конфигов")
+    print("  ТСПУ-bypass: fp=firefox, фильтр Selectel/Яндекс AS")
+    print("=" * 60)
+
     try:
         xray_path = setup_xray_bin()
     except Exception as e:
         print(f"[КРИТИЧЕСКАЯ ОШИБКА] Не удалось настроить Xray: {e}")
         sys.exit(1)
 
-    print("Источники из .env:")
+    print("\nИсточники из .env:")
     for url in INTERNET_SUBS_POOL:
         print(f"  - internet: {url}")
     for url in WHITELISTED_SUBS_POOL:
@@ -566,7 +755,7 @@ def main():
     extra_sources = load_sources_txt()
 
     print("\n[+] Загрузка подписок из .env пулов...")
-    raw_links_internet = []
+    raw_links_internet  = []
     raw_links_whitelist = []
     for url in INTERNET_SUBS_POOL:
         raw_links_internet.extend(parse_subscription(url))
@@ -602,7 +791,17 @@ def main():
             dedup_internet.append(link)
     raw_links_internet = dedup_internet
 
-    valid_links_internet = []
+    # Предварительная ТСПУ-сортировка: конфиги с firefox/edge идут первыми
+    # Это повышает шанс попасть в топ ещё до реальной проверки скорости
+    print("\n[+] Предварительная ТСПУ-сортировка (приоритет firefox/edge fingerprint)...")
+    raw_links_internet.sort(key=_tpsu_link_score, reverse=True)
+    raw_links_whitelist.sort(key=_tpsu_link_score, reverse=True)
+    
+    fp_internet_bad = sum(1 for l in raw_links_internet if _tpsu_link_score(l) < 0)
+    fp_internet_good = sum(1 for l in raw_links_internet if _tpsu_link_score(l) > 0)
+    print(f"  Интернет-пул: {fp_internet_good} с хорошим fp, {fp_internet_bad} с плохим fp (будут исправлены)")
+
+    valid_links_internet  = []
     valid_links_whitelist = []
 
     if raw_links_internet:
@@ -620,7 +819,7 @@ def main():
     valid_links_internet.sort(key=lambda x: x[0], reverse=True)
     valid_links_whitelist.sort(key=lambda x: x[0], reverse=True)
 
-    print("\n[+] Определение страны по IP для рабочих ссылок...")
+    print("\n[+] Определение страны, AS и патч fingerprint для рабочих конфигов...")
     valid_links_internet  = add_country_to_remarks(valid_links_internet,  "ОСТАТЬСЯ НА СВЯЗИ 🌐")
     valid_links_whitelist = add_country_to_remarks(valid_links_whitelist, "ОСТАТЬСЯ НА СВЯЗИ ⭐")
 
@@ -649,17 +848,27 @@ def main():
     if valid_links_whitelist:
         output_whitelist = os.path.join(PROJECT_DIR, "valid_whitelist_links.txt")
         save_results([link for _, _, _, link in valid_links_whitelist], output_whitelist)
-        print(f"\n[+] Вайтлист-ссылки сохранены: {output_whitelist}")
+        print(f"[+] Вайтлист-ссылки сохранены: {output_whitelist}")
 
     # Финальный файл подписки
     from datetime import datetime, timezone
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
     final_lines = [
         "#profile-title: ОСТАТЬСЯ НА СВЯЗИ🛜",
         "#profile-update-interval: 1",
         f"#announce: ОСТАТЬСЯ НА СВЯЗИ | Авто-обновление | {ts}",
-        ""
+        "# ──────────────────────────────────────────────────",
+        "# НАСТРОЙКИ ДЛЯ ОБХОДА ТСПУ (июнь 2026, «Siberian»):",
+        "# Fingerprint: firefox (уже применён в конфигах)",
+        "# Mux/XUDP: включите в клиенте (concurrency=8-16)",
+        "#   v2rayNG: Конфиг → Настройки → Мультиплексирование → Вкл",
+        "#   NekoRay: Outbound → Mux → Вкл, XUDP, concurrency=8",
+        "# Избегайте Selectel/Яндекс.Облако серверов (⚠️ метка)",
+        "# ──────────────────────────────────────────────────",
+        "",
     ]
+
     if valid_links_whitelist:
         for _, _, _, link in valid_links_whitelist:
             final_lines.append(link)
@@ -672,6 +881,8 @@ def main():
         f.write("\n".join(final_lines))
     print(f"[+] Финальный файл подписки: {output_sub}")
     print(f"    Всего конфигов: {len(valid_links_internet) + len(valid_links_whitelist)}")
+    print("\n[ТСПУ] Все конфиги прошли обработку: fp=firefox, ⚠️ AS-метки проставлены")
+
 
 if __name__ == "__main__":
     main()
