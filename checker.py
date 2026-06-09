@@ -4,6 +4,7 @@ import html
 import json
 import os
 import platform
+import queue
 import re
 import shutil
 import subprocess
@@ -25,6 +26,7 @@ from config import (
     CONCURRENT_THREADS_CHECK_DEFAULT,
     INTERNET_CFGS_COUNT, WHITELISTED_CFGS_COUNT,
     MAX_LINKS_TO_CHECK_INTERNET, MAX_LINKS_TO_CHECK_WHITELIST,
+    CHECK_TIME_BUDGET_SEC,
 )
 
 # ─── Параметры проверки ───────────────────────────────────────────────────────
@@ -34,6 +36,7 @@ TEST_URL = "https://speed.cloudflare.com/__down?bytes=204800"
 SOCKS_PORT_MIN        = 20000
 CONCURRENT_DEFAULT    = CONCURRENT_THREADS_CHECK_DEFAULT
 MIN_XRAY_START_TIMEOUT = 1.0
+INTERNET_TIME_SHARE   = 0.6   # доля бюджета на интернет-пул (source.txt); остаток — вайтлисту
 
 PROJECT_DIR  = os.path.dirname(os.path.abspath(__file__))
 XRAY_BIN_DIR = os.path.join(PROJECT_DIR, "xray_bin")
@@ -459,18 +462,48 @@ def check_single_config(outbound: dict, port: int, xray_path: str) -> tuple[floa
     return float("inf"), 0.0
 
 
-def check_configs(links: list[tuple[str, dict, str]], xray_path: str) -> list[tuple[float, float, str, str]]:
-    valid_configs = []
+def check_configs(
+    links: list[tuple[str, dict, str]],
+    xray_path: str,
+    deadline: float | None = None,
+) -> list[tuple[float, float, str, str]]:
+    valid_configs: list[tuple[float, float, str, str]] = []
     links = [item for item in links if item is not None]
     if not links:
         return valid_configs
+
+    # Пул портов (безопасен при десятках тысяч ссылок — порт не вылезет за 65535).
+    n_ports = min(max(CONCURRENT_DEFAULT * 2, 16), 20000)
+    port_pool: queue.Queue[int] = queue.Queue()
+    for p in range(SOCKS_PORT_MIN, SOCKS_PORT_MIN + n_ports):
+        port_pool.put(p)
+
+    def _worker(outbound: dict) -> tuple[float, float]:
+        port = port_pool.get()
+        try:
+            return check_single_config(outbound, port, xray_path)
+        finally:
+            port_pool.put(port)
+
+    total = len(links)
+    done = 0
     with ThreadPoolExecutor(max_workers=CONCURRENT_DEFAULT) as executor:
         futures = {
-            executor.submit(check_single_config, outbound, SOCKS_PORT_MIN + idx, xray_path): (remark, original_link)
-            for idx, (remark, outbound, original_link) in enumerate(links)
+            executor.submit(_worker, outbound): (remark, original_link)
+            for (remark, outbound, original_link) in links
         }
         for future in as_completed(futures):
+            # Проверка бюджета времени: останавливаемся и публикуем то, что есть.
+            if deadline is not None and time.time() >= deadline:
+                pending = sum(1 for f in futures if not f.done())
+                print(f"\n  [БЮДЖЕТ ВРЕМЕНИ] Дедлайн достигнут — стоп. "
+                      f"Проверено {done}/{total}, не успели ≈{pending}. "
+                      f"Публикуем найденные рабочие конфиги.")
+                for f in futures:
+                    f.cancel()
+                break
             remark, link = futures[future]
+            done += 1
             try:
                 latency, speed = future.result()
                 if latency != float("inf") and speed > 0:
@@ -876,17 +909,27 @@ def main():
     valid_links_internet  = []
     valid_links_whitelist = []
 
+    # Бюджет времени на проверку: если задан — интернет-пул получает INTERNET_TIME_SHARE,
+    # вайтлист — весь остаток до конца бюджета.
+    t_checks_start = time.time()
+    budget = CHECK_TIME_BUDGET_SEC
+    deadline_all      = (t_checks_start + budget) if budget > 0 else None
+    deadline_internet = (t_checks_start + budget * INTERNET_TIME_SHARE) if budget > 0 else None
+    if budget > 0:
+        print(f"\n[+] Бюджет времени: {budget} сек (~{budget // 60} мин). "
+              f"Интернет-пул: до ~{int(budget * INTERNET_TIME_SHARE) // 60} мин, остаток — вайтлисту.")
+
     if raw_links_internet:
         print(f"\n[+] Загружено {len(raw_links_internet)} ссылок из интернет-пула.")
-        raw_links_internet = raw_links_internet[:MAX_LINKS_TO_CHECK_INTERNET]
+        raw_links_internet = _cap(raw_links_internet, MAX_LINKS_TO_CHECK_INTERNET)
         print(f"\n[+] Проверка {len(raw_links_internet)} ссылок из интернет-пула...")
-        valid_links_internet = check_configs(parse_proxy_links(raw_links_internet), xray_path)
+        valid_links_internet = check_configs(parse_proxy_links(raw_links_internet), xray_path, deadline=deadline_internet)
 
     if raw_links_whitelist:
         print(f"\n[+] Загружено {len(raw_links_whitelist)} ссылок из вайтлиста.")
-        raw_links_whitelist = raw_links_whitelist[:MAX_LINKS_TO_CHECK_WHITELIST]
+        raw_links_whitelist = _cap(raw_links_whitelist, MAX_LINKS_TO_CHECK_WHITELIST)
         print(f"\n[+] Проверка {len(raw_links_whitelist)} ссылок из вайтлиста...")
-        valid_links_whitelist = check_configs(parse_proxy_links(raw_links_whitelist), xray_path)
+        valid_links_whitelist = check_configs(parse_proxy_links(raw_links_whitelist), xray_path, deadline=deadline_all)
 
     # Сначала сортируем по скорости, ПОТОМ лимит — чтобы лимит оставлял самые быстрые.
     # *_CFGS_COUNT <= 0 → без лимита: В ПОДПИСКУ ПОПАДАЮТ ВСЕ прошедшие проверку конфиги.

@@ -2,7 +2,7 @@ name: OSTATSYA NA SVYAZI - Hourly Update
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 */2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -15,7 +15,7 @@ concurrency:
 jobs:
   run-checker:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
