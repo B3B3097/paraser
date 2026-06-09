@@ -402,7 +402,7 @@ def _singbox_cfg(cfg: Vless, port: int) -> dict:
             "insecure":    True,
             "utls": {
                 "enabled":     True,
-                "fingerprint": cfg.fp or "chrome",
+                "fingerprint": cfg.fp or "firefox",
             },
         }
         if sec == "reality":
@@ -479,7 +479,7 @@ def _xray_cfg(cfg: Vless, port: int) -> dict:
         stream["security"] = "reality"
         stream["realitySettings"] = {
             "serverName":  cfg.sni or cfg.host,
-            "fingerprint": cfg.fp  or "chrome",
+            "fingerprint": cfg.fp  or "firefox",
             "publicKey":   cfg.pbk or "",
             "shortId":     cfg.sid or "",
         }
@@ -488,7 +488,7 @@ def _xray_cfg(cfg: Vless, port: int) -> dict:
         stream["tlsSettings"] = {
             "serverName":    cfg.sni or cfg.host,
             "allowInsecure": True,
-            "fingerprint":   cfg.fp  or "chrome",
+            "fingerprint":   cfg.fp  or "firefox",
         }
 
     user: dict = {"id": cfg.uuid, "encryption": "none"}
