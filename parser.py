@@ -230,7 +230,7 @@ def _gh_tree_candidates(owner: str, repo: str) -> list[str]:
             if not scored: continue
             scored.sort(key=lambda x: -x[0])
             base = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}"
-            return [f"{base}/{path}" for _, path in scored]
+            return [f"{base}/{urllib.parse.quote(path)}" for _, path in scored]
         except Exception:
             continue
     candidates = []
@@ -246,7 +246,7 @@ def _gh_tree_candidates(owner: str, repo: str) -> list[str]:
 
 def resolve_urls(url: str) -> list[str]:
     if "raw.githubusercontent.com" in url: return [url]
-    if url.startswith("://"): url = "https:" + url
+    if url.startswith("://"): url = "https" + url
     if not url.startswith("http"): url = "https://" + url
     parsed  = urllib.parse.urlparse(url)
     netloc  = parsed.netloc.lower()
@@ -272,12 +272,20 @@ def fetch(url: str) -> Optional[str]:
         return None
 
 def fetch_source(url: str) -> list[Vless]:
+    # Собираем конфиги из ВСЕХ файлов источника (для github-репо — из всех найденных
+    # .txt), а не только из первого непустого, с дедупликацией.
+    out: list[Vless] = []
+    seen: set[str] = set()
     for cand in resolve_urls(url):
         text = fetch(cand)
-        if text:
-            cfgs = extract_from_text(text)
-            if cfgs: return cfgs
-    return []
+        if not text:
+            continue
+        for v in extract_from_text(text):
+            k = f"{v.uuid}@{v.host}:{v.port}"
+            if k not in seen:
+                seen.add(k)
+                out.append(v)
+    return out
 
 # ═══════════════════════════ geo / naming ════════════════════════════════════
 
