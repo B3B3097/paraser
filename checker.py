@@ -282,31 +282,37 @@ def _parse_shadowsocks_link(link: str) -> tuple[str, dict] | None:
 
 
 def _parse_vmess_link(link: str) -> tuple[str, dict] | None:
+    # Вся разборка под try: битые vmess-конфиги (нечисловой aid/port и т.п.) не должны
+    # ронять весь прогон — просто пропускаем такую ссылку.
     try:
         raw_config = _decode_base64_text(link.removeprefix("vmess://"))
         config = json.loads(raw_config)
         port = int(config["port"])
         address = config["add"]
         user_id = config["id"]
+        try:
+            alter_id = int(config.get("aid") or 0)
+        except (TypeError, ValueError):
+            alter_id = 0
+        query = {
+            "type": config.get("net") or "tcp",
+            "security": config.get("tls") or "none",
+            "path": config.get("path", ""),
+            "host": config.get("host", ""),
+            "sni": config.get("sni", ""),
+            "fp": config.get("fp", ""),
+            "alpn": config.get("alpn", ""),
+            "headerType": config.get("type", ""),
+            "mode": config.get("mode", ""),
+        }
+        outbound = {
+            "protocol": "vmess",
+            "settings": {"vnext": [{"address": address, "port": port, "users": [{"id": user_id, "alterId": alter_id, "security": config.get("scy") or "auto"}]}]},
+            "streamSettings": _build_stream_settings(query),
+        }
+        return config.get("ps") or "Untitled", outbound
     except Exception:
         return None
-    query = {
-        "type": config.get("net") or "tcp",
-        "security": config.get("tls") or "none",
-        "path": config.get("path", ""),
-        "host": config.get("host", ""),
-        "sni": config.get("sni", ""),
-        "fp": config.get("fp", ""),
-        "alpn": config.get("alpn", ""),
-        "headerType": config.get("type", ""),
-        "mode": config.get("mode", ""),
-    }
-    outbound = {
-        "protocol": "vmess",
-        "settings": {"vnext": [{"address": address, "port": port, "users": [{"id": user_id, "alterId": int(config.get("aid") or 0), "security": config.get("scy") or "auto"}]}]},
-        "streamSettings": _build_stream_settings(query),
-    }
-    return config.get("ps") or "Untitled", outbound
 
 
 def convert_link_via_xray(link: str) -> tuple[str, dict] | None:
@@ -521,7 +527,11 @@ def check_configs(
 def parse_proxy_links(raw_links: list[str]) -> list[tuple[str, dict, str]]:
     parsed_links = []
     for link in raw_links:
-        parsed = convert_link_via_xray(link)
+        # Защита: одна битая ссылка из десятков тысяч не должна ронять весь прогон.
+        try:
+            parsed = convert_link_via_xray(link)
+        except Exception:
+            parsed = None
         if parsed is None:
             continue
         remark, outbound = parsed
