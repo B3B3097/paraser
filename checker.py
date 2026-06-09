@@ -53,10 +53,13 @@ if GH_TOKEN:
 #   • патчим fp= → firefox/edge
 #   • деприоритизируем серверы на заблокированных AS
 
-# Фингерпринты, активирующие Сигнал 2 ТСПУ
-TPSU_BAD_FP  = {"chrome", "safari", "ios", "random", "chrome_auto"}
-# Предпочтительный порядок замены
-TPSU_GOOD_FP = ["firefox", "edge", "chrome106", "android", "360"]
+# Фингерпринты, активирующие Сигнал 2 ТСПУ (семейство Chrome/Safari/iOS + random).
+# chrome106 — это тоже отпечаток Chrome → подозрительный. "randomized" может выпасть
+# в chrome/safari, поэтому тоже считаем плохим.
+TPSU_BAD_FP  = {"chrome", "chrome106", "safari", "ios", "random", "randomized", "chrome_auto"}
+# «Лояльные» фингерпринты (Habr июнь-2026): Firefox, Edge, Android OkHttp, 360, QQ.
+# Первый элемент используется как замена. Порядок = приоритет.
+TPSU_GOOD_FP = ["firefox", "edge", "android", "360", "qq"]
 
 # ASN провайдеров, попадающих под Сигнал 1 (Selectel, Яндекс.Облако)
 TPSU_BLOCKED_ASNS = {
@@ -342,8 +345,13 @@ def _patch_link_fp(link: str) -> str:
     try:
         parsed = urlsplit(link)
         query  = dict(parse_qsl(parsed.query, keep_blank_values=True))
-        fp = query.get("fp", "").lower()
-        if fp in TPSU_BAD_FP and fp != "":
+        fp  = query.get("fp", "").lower()
+        sec = (query.get("security") or "").lower()
+        # TLS-подобный конфиг: REALITY, явный tls, либо присутствует reality-ключ (pbk).
+        is_tls_like = sec in ("reality", "tls") or "pbk" in query
+        need_patch = fp in TPSU_BAD_FP or (fp == "" and is_tls_like)
+        if need_patch:
+            # Пустой fp у TLS/REALITY у большинства клиентов по умолчанию = chrome → палевно.
             query["fp"] = TPSU_GOOD_FP[0]
             new_query = urlencode(query)
             return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query, parsed.fragment))
@@ -355,7 +363,7 @@ def _patch_link_fp(link: str) -> str:
 def _tpsu_link_score(link: str) -> int:
     """
     Оценка ТСПУ-«безопасности» ссылки:
-      +2 — уже хороший fingerprint (firefox/edge/chrome106/android)
+      +2 — уже хороший fingerprint (firefox/edge/android/360/qq)
        0 — нет fp вообще (не VLESS/TLS)
       -2 — плохой fingerprint (chrome/safari/ios/random)
       +1 — REALITY (наиболее стойкий транспорт)
