@@ -26,8 +26,8 @@ from requests.exceptions import RequestException
 
 # ═══════════════════════════ tunables ════════════════════════════════════════
 
-MAX_XRAY   = 200
-MAX_TCPTLS = 500
+MAX_XRAY   = 0   # 0 = без лимита (все прошедшие проверку конфиги)
+MAX_TCPTLS = 0   # 0 = без лимита (все прошедшие проверку конфиги)
 
 TCP_CONCURRENCY  = 80
 TLS_CONCURRENCY  = 40
@@ -708,9 +708,12 @@ def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = C
     # Сортируем: сначала whitelisted, потом по скорости (если есть) иначе по latency
     has_speed = any(c.speed_mbps >= MIN_SPEED_MBPS for c in configs)
     if has_speed:
-        configs = sorted(configs, key=lambda c: (0 if c.white_ok else 1, -c.speed_mbps))[:limit]
+        configs = sorted(configs, key=lambda c: (0 if c.white_ok else 1, -c.speed_mbps))
     else:
-        configs = sorted(configs, key=lambda c: (0 if c.white_ok else 1, c.latency))[:limit]
+        configs = sorted(configs, key=lambda c: (0 if c.white_ok else 1, c.latency))
+    # limit <= 0 → без лимита: в подписку попадают ВСЕ прошедшие проверку конфиги
+    if limit and limit > 0:
+        configs = configs[:limit]
     white_cnt = sum(1 for c in configs if c.white_ok)
     print(f"  Geo lookup for {len(configs)} → {fname} (white: {white_cnt}, speed_sorted={has_speed}) ...")
     lines = []
@@ -723,6 +726,8 @@ def write_list(configs: list[Checked], fname: str, limit: int, sub_name: str = C
     header   = (
         f"# !name={sub_name}\n"
         f"# profile-title: base64:{b64_name}\n"
+        f"#profile-update-interval: 1\n"
+        f"#subscription-userinfo: upload=0; download=0; total=1099511627776; expire=4102444800\n"
         f"# !desc=Авто-обновление каждый час · {ts} · white:{white_cnt}/{len(configs)}\n"
         f"# !url=https://raw.githubusercontent.com/B3B3097/paraser/main/{fname}\n"
     )

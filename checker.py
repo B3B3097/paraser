@@ -774,6 +774,41 @@ def load_sources_txt() -> list[str]:
 
 
 # ─── main ──────────────────────────────────────────────────────────────────────
+def _dedup_key(link: str) -> str:
+    """Нормализованный ключ дедупликации: без #remark, без %-кодировки, без base64-padding
+    в учётных данных. Query сохраняется — чтобы НЕ схлопывать реально разные REALITY-конфиги
+    (один host:port, но разные sni/pbk). Консервативно: убираем только точные дубли."""
+    base = link.split("#", 1)[0].strip()
+    try:
+        base = unquote(base)
+    except Exception:
+        pass
+    try:
+        p = urlsplit(base)
+        user = (p.username or "").rstrip("=")
+        host = (p.hostname or "").lower()
+        port = p.port or ""
+        return f"{p.scheme}://{user}@{host}:{port}?{p.query}".lower()
+    except Exception:
+        return base.rstrip("=").lower()
+
+
+def _dedup_links(links: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for link in links:
+        k = _dedup_key(link)
+        if k not in seen:
+            seen.add(k)
+            out.append(link)
+    return out
+
+
+def _cap(items: list, n: int) -> list:
+    """Ограничивает список; n <= 0 означает «без лимита» (все элементы)."""
+    return items if n is None or n <= 0 else items[:n]
+
+
 def main():
     print("=" * 60)
     print("  ОСТАТЬСЯ НА СВЯЗИ — Автоматический чекер конфигов")
@@ -812,7 +847,7 @@ def main():
             fetched = parse_subscription(url)
             new_count = 0
             for link in fetched:
-                k = link[:80]
+                k = _dedup_key(link)
                 if k not in seen_keys:
                     seen_keys.add(k)
                     extra_links.append(link)
@@ -822,15 +857,11 @@ def main():
         raw_links_internet.extend(extra_links)
         print(f"  Из source.txt добавлено: {len(extra_links)} ссылок")
 
-    # Дедупликация
-    seen: set[str] = set()
-    dedup_internet: list[str] = []
-    for link in raw_links_internet:
-        k = link[:80]
-        if k not in seen:
-            seen.add(k)
-            dedup_internet.append(link)
-    raw_links_internet = dedup_internet
+    # Дедупликация ОБОИХ пулов (раньше whitelist не дедуплицировался → дубли в подписке)
+    before_i, before_w = len(raw_links_internet), len(raw_links_whitelist)
+    raw_links_internet  = _dedup_links(raw_links_internet)
+    raw_links_whitelist = _dedup_links(raw_links_whitelist)
+    print(f"  Дедупликация: интернет {before_i}→{len(raw_links_internet)}, вайтлист {before_w}→{len(raw_links_whitelist)}")
 
     # Предварительная ТСПУ-сортировка: конфиги с firefox/edge идут первыми
     # Это повышает шанс попасть в топ ещё до реальной проверки скорости
@@ -849,16 +880,20 @@ def main():
         print(f"\n[+] Загружено {len(raw_links_internet)} ссылок из интернет-пула.")
         raw_links_internet = raw_links_internet[:MAX_LINKS_TO_CHECK_INTERNET]
         print(f"\n[+] Проверка {len(raw_links_internet)} ссылок из интернет-пула...")
-        valid_links_internet = check_configs(parse_proxy_links(raw_links_internet), xray_path)[:INTERNET_CFGS_COUNT]
+        valid_links_internet = check_configs(parse_proxy_links(raw_links_internet), xray_path)
 
     if raw_links_whitelist:
         print(f"\n[+] Загружено {len(raw_links_whitelist)} ссылок из вайтлиста.")
         raw_links_whitelist = raw_links_whitelist[:MAX_LINKS_TO_CHECK_WHITELIST]
         print(f"\n[+] Проверка {len(raw_links_whitelist)} ссылок из вайтлиста...")
-        valid_links_whitelist = check_configs(parse_proxy_links(raw_links_whitelist), xray_path)[:WHITELISTED_CFGS_COUNT]
+        valid_links_whitelist = check_configs(parse_proxy_links(raw_links_whitelist), xray_path)
 
+    # Сначала сортируем по скорости, ПОТОМ лимит — чтобы лимит оставлял самые быстрые.
+    # *_CFGS_COUNT <= 0 → без лимита: В ПОДПИСКУ ПОПАДАЮТ ВСЕ прошедшие проверку конфиги.
     valid_links_internet.sort(key=lambda x: x[0], reverse=True)
     valid_links_whitelist.sort(key=lambda x: x[0], reverse=True)
+    valid_links_internet  = _cap(valid_links_internet,  INTERNET_CFGS_COUNT)
+    valid_links_whitelist = _cap(valid_links_whitelist, WHITELISTED_CFGS_COUNT)
 
     print("\n[+] Определение страны, AS и патч fingerprint для рабочих конфигов...")
     valid_links_internet  = add_country_to_remarks(valid_links_internet,  "ОСТАТЬСЯ НА СВЯЗИ 🌐")
@@ -894,11 +929,33 @@ def main():
     # Финальный файл подписки
     from datetime import datetime, timezone
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    total_cfgs = len(valid_links_internet) + len(valid_links_whitelist)
 
-    final_lines = [
+    # Заголовки подписки (body-headers): клиенты, которые их читают (v2RayTun, Hiddify,
+    # Streisand, Happ, NekoBox…), показывают панель подписки и авто-обновление.
+    # subscription-userinfo обязателен, чтобы клиент отрисовал инфо/обновление;
+    # total/expire — далёкое будущее → подписка «безлимитная», но панель видна.
+    EXPIRE_TS = 4102444800   # 2100-01-01 UTC
+    TOTAL_BYTES = 1099511627776  # 1 TiB
+    header = [
         "#profile-title: ОСТАТЬСЯ НА СВЯЗИ🛜",
         "#profile-update-interval: 1",
-        f"#announce: ОСТАТЬСЯ НА СВЯЗИ | Авто-обновление | {ts}",
+        f"#subscription-userinfo: upload=0; download=0; total={TOTAL_BYTES}; expire={EXPIRE_TS}",
+        f"#announce: ОСТАТЬСЯ НА СВЯЗИ | Авто-обновление каждый час | конфигов: {total_cfgs} | {ts}",
+    ]
+
+    body: list[str] = []
+    if valid_links_whitelist:
+        for _, _, _, link in valid_links_whitelist:
+            body.append(link)
+    if valid_links_internet:
+        for _, _, _, link in valid_links_internet:
+            body.append(link)
+
+    # Человекочитаемые инструкции — в КОНЦЕ файла (комментарии после конфигов
+    # игнорируются клиентами и не ломают разбор заголовков).
+    footer = [
+        "",
         "# ──────────────────────────────────────────────────",
         "# НАСТРОЙКИ ДЛЯ ОБХОДА ТСПУ (июнь 2026, «Siberian»):",
         "# Fingerprint: firefox (уже применён в конфигах)",
@@ -907,15 +964,9 @@ def main():
         "#   NekoRay: Outbound → Mux → Вкл, XUDP, concurrency=8",
         "# Избегайте Selectel/Яндекс.Облако серверов (⚠️ метка)",
         "# ──────────────────────────────────────────────────",
-        "",
     ]
 
-    if valid_links_whitelist:
-        for _, _, _, link in valid_links_whitelist:
-            final_lines.append(link)
-    if valid_links_internet:
-        for _, _, _, link in valid_links_internet:
-            final_lines.append(link)
+    final_lines = header + body + footer
 
     output_sub = os.path.join(PROJECT_DIR, "v2ray_sub.txt")
     with open(output_sub, "w", encoding="utf-8") as f:
