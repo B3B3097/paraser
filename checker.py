@@ -663,7 +663,7 @@ def _gh_tree_raw_urls(repo_url: str) -> list[str]:
                 continue
             scored.sort(key=lambda x: -x[0])
             base = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}"
-            return [f"{base}/{p}" for _, p in scored[:5]]
+            return [f"{base}/{quote(p)}" for _, p in scored]
         except Exception:
             continue
 
@@ -675,6 +675,36 @@ def _gh_tree_raw_urls(repo_url: str) -> list[str]:
     return results
 
 
+def _normalize_github_blob(url: str) -> str:
+    """github.com/owner/repo/{blob,raw}/<ref...>/<path> → raw.githubusercontent.com/owner/repo/<ref...>/<path>."""
+    m = re.match(r"https?://(?:www\.)?github\.com/([^/]+)/([^/]+)/(?:blob|raw)/(.+)$", url)
+    if not m:
+        return url
+    owner, repo, rest = m.group(1), m.group(2), m.group(3)
+    rest = re.sub(r"^refs/(?:heads|tags)/", "", rest)
+    return f"https://raw.githubusercontent.com/{owner}/{repo}/{rest}"
+
+
+def _github_repo_url(url: str) -> str | None:
+    """Возвращает https://github.com/owner/repo для любой github-ссылки, иначе None."""
+    m = re.match(r"https?://(?:www\.)?github\.com/([^/]+)/([^/]+)", url)
+    if not m:
+        return None
+    return f"https://github.com/{m.group(1)}/{m.group(2)}"
+
+
+def _collect_from_repo(repo_url: str) -> list[str]:
+    """Собирает конфиги из ВСЕХ файлов репозитория (tree API), с дедупликацией."""
+    all_links: list[str] = []
+    seen: set[str] = set()
+    for raw_url in _gh_tree_raw_urls(repo_url):
+        for link in parse_subscription(raw_url):
+            if link not in seen:
+                seen.add(link)
+                all_links.append(link)
+    return all_links
+
+
 def parse_subscription(source: str | None) -> list[str]:
     """Загружает подписку по ссылке или разбирает сырую строку."""
     if not source:
@@ -683,14 +713,13 @@ def parse_subscription(source: str | None) -> list[str]:
     if not source:
         return []
 
-    # GitHub-репозиторий → получаем raw-файлы через tree API
+    original = source
+    # Прямая ссылка на файл в github (blob/raw) → raw.githubusercontent.com
+    source = _normalize_github_blob(source)
+
+    # GitHub-репозиторий без указания файла → собираем ВСЕ raw-файлы
     if re.match(r"https?://(www\.)?github\.com/[^/]+/[^/]+/?$", source):
-        all_links: list[str] = []
-        for raw_url in _gh_tree_raw_urls(source):
-            all_links.extend(parse_subscription(raw_url))
-            if all_links:
-                break
-        return all_links
+        return _collect_from_repo(source)
 
     if source.startswith(("http://", "https://")):
         try:
@@ -699,6 +728,10 @@ def parse_subscription(source: str | None) -> list[str]:
                 source = r.read().decode("utf-8", errors="replace")
         except Exception as e:
             print(f"  [ОШИБКА] Не удалось загрузить подписку: {e}")
+            # Файл мог быть переименован/удалён — пробуем просканировать весь репозиторий
+            repo = _github_repo_url(original)
+            if repo:
+                return _collect_from_repo(repo)
             return []
 
     if not source.startswith(("vless://", "vmess://", "trojan://", "ss://")):
@@ -726,7 +759,7 @@ def load_sources_txt() -> list[str]:
             if not line or line.startswith("#"):
                 continue
             if line.startswith("://"):
-                line = "https:" + line
+                line = "https" + line
             urls.append(line)
     print(f"[+] source.txt: загружено {len(urls)} источников")
     return urls
