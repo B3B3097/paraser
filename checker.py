@@ -40,6 +40,26 @@ try:
 except ImportError:
     _NEW_MODULES_LOADED = False
 
+# ─── Модули v4.0 «Siberian Pro» (динамическая ASN, bypass-стратегии) ───────────
+try:
+    from operator_classifier import (
+        classify_operator, fetch_asn_info,
+        OPERATOR_RU_TSPU, OPERATOR_FOREIGN, OPERATOR_CLOUDFLARE,
+        OPERATOR_NAMES, get_operator_stats,
+    )
+    from tpsu_bypass import (
+        recommend_bypass, bypass_strategy_score,
+        SNI_ROTATION_POOL, APPLY_STRATEGIES,
+    )
+    _V4_MODULES_LOADED = True
+except ImportError:
+    _V4_MODULES_LOADED = False
+    def classify_operator(host): return "unknown"
+    OPERATOR_NAMES: dict = {}
+    OPERATOR_RU_TSPU = "ru_tspu"
+    OPERATOR_FOREIGN = "foreign"
+    OPERATOR_CLOUDFLARE = "cloudflare"
+
 # ─── Параметры проверки ───────────────────────────────────────────────────────
 TEST_CONNECT_TIMEOUT = 2
 TEST_READ_TIMEOUT    = 4
@@ -665,23 +685,34 @@ def add_country_to_remarks(
     """
     Переименовывает конфиги, добавляя страну и скорость.
     Заодно:
-      • патчит fingerprint → firefox (ТСПУ Сигнал 2)
-      • помечает конфиги на заблокированных AS тегом ⚠️
+      • патчит fingerprint -> firefox (ТСПУ Сигнал 2)
+      • помечает конфиги на заблокированных AS
+      • классифицирует по операторам (v4.0)
     """
     renamed_links = []
     blocked_count = 0
     patched_fp_count = 0
+    operator_counts: dict[str, int] = {}
 
     for idx, (speed, latency, _remark, link) in enumerate(valid_links, 1):
         address = get_link_address(link)
         country, asn = detect_ip_info(address)
         country_emoji = get_country_emoji(country)
 
+        # Классификация оператора (v4.0)
+        operator_tag = ""
+        if _V4_MODULES_LOADED and address:
+            op = classify_operator(address)
+            op_name = OPERATOR_NAMES.get(op, op)
+            operator_counts[op_name] = operator_counts.get(op_name, 0) + 1
+            if op == OPERATOR_RU_TSPU:
+                operator_tag = " [TSPU]"
+
         # Проверяем Сигнал 1 ТСПУ
         is_blocked = asn in TPSU_BLOCKED_ASNS
         if is_blocked:
             blocked_count += 1
-            warning = "⚠️ "
+            warning = "! "
         else:
             warning = ""
 
@@ -693,13 +724,18 @@ def add_country_to_remarks(
             link = patched_link
 
         speed_str = f"{speed / 1024:.1f}MB/s" if speed >= 1024 else f"{speed:.0f}KB/s"
-        new_remark = f"{warning}{country_emoji} {prefix}#{idx} {speed_str} {latency:.0f}ms"
+        new_remark = f"{warning}{country_emoji} {prefix}#{idx} {speed_str} {latency:.0f}ms{operator_tag}"
         renamed_links.append((speed, latency, new_remark, set_link_remark(link, new_remark)))
 
     if patched_fp_count:
-        print(f"  [ТСПУ] Fingerprint исправлен (chrome→firefox): {patched_fp_count} конфигов")
+        print(f"  [TSPU] Fingerprint исправлен: {patched_fp_count} конфигов")
     if blocked_count:
-        print(f"  [ТСПУ] Помечено ⚠️  конфигов на Selectel/Яндекс AS: {blocked_count}")
+        print(f"  [TSPU] Помечено на заблокированных AS: {blocked_count} конфигов")
+    if operator_counts:
+        print(f"  [TSPU] Распределение по операторам:")
+        for op_name, cnt in sorted(operator_counts.items(), key=lambda x: -x[1]):
+            pct = cnt / len(valid_links) * 100
+            print(f"         {op_name}: {cnt} ({pct:.1f}%)")
 
     return renamed_links
 
@@ -1041,17 +1077,43 @@ def main():
 
     # Человекочитаемые инструкции — в КОНЦЕ файла (комментарии после конфигов
     # игнорируются клиентами и не ломают разбор заголовков).
+    # Статистика операторов
+    operator_info = ""
+    if _V4_MODULES_LOADED:
+        addresses = [get_link_address(l) for _, _, _, l in valid_links_internet + valid_links_whitelist]
+        if addresses:
+            try:
+                from operator_classifier import get_operator_stats as _get_os
+                import types
+                hosts = []
+                for a in addresses:
+                    if a:
+                        hosts.append(types.SimpleNamespace(host=a))
+                by_op = _get_os(hosts)
+                if by_op:
+                    parts = []
+                    for v in by_op.values():
+                        parts.append(f"{v['name']}: {v['count']}")
+                    operator_info = "# " + " | ".join(parts)
+            except Exception:
+                pass
+
     footer = [
         "",
         "# ──────────────────────────────────────────────────",
-        "# НАСТРОЙКИ ДЛЯ ОБХОДА ТСПУ (июнь 2026, «Siberian»):",
-        "# Fingerprint: firefox (уже применён в конфигах)",
+        "# НАСТРОЙКИ ДЛЯ ОБХОДА ТСПУ (июнь 2026, v4.0 Siberian Pro):",
+        "# Fingerprint: firefox/cnsa/edge (уже применён в конфигах)",
+        "# SNI rotation: yandex.ru, vk.com, sberbank.ru (авто-подстановка)",
+        "# Multi-fp тестирование: firefox, cnsa, edge, android, qq",
         "# Mux/XUDP: включите в клиенте (concurrency=8-16)",
-        "#   v2rayNG: Конфиг → Настройки → Мультиплексирование → Вкл",
-        "#   NekoRay: Outbound → Mux → Вкл, XUDP, concurrency=8",
-        "# Избегайте Selectel/Яндекс.Облако/TimeWeb/Beget/Cloud.ru/FirstVDS/SpaceWeb серверов (⚠️ метка)",
+        "#   v2rayNG: Конфиг -> Настройки -> Мультиплексирование -> Вкл",
+        "#   NekoRay: Outbound -> Mux -> Вкл, XUDP, concurrency=8",
+        "# Избегайте RU-TSPU серверов (под ТСПУ фильтрацией)",
+        "# Рекомендованные: иностранные хостинги (Hetzner/OVH/DO/Vultr)",
         "# ──────────────────────────────────────────────────",
     ]
+    if operator_info:
+        footer.insert(1, operator_info)
 
     final_lines = header + body + footer
 
@@ -1060,7 +1122,8 @@ def main():
         f.write("\n".join(final_lines))
     print(f"[+] Финальный файл подписки: {output_sub}")
     print(f"    Всего конфигов: {len(valid_links_internet) + len(valid_links_whitelist)}")
-    print("\n[ТСПУ] Все конфиги прошли обработку: fp=firefox, ⚠️ AS-метки проставлены")
+    print("\n[ТСПУ] Все конфиги прошли обработку: fp=firefox, AS-метки проставлены")
+    print("[TSPU] v4.0 \"Siberian Pro\": multi-fp, SNI rotation, operator classification")
 
 
 if __name__ == "__main__":

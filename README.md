@@ -2,14 +2,15 @@
 
 # 🛜 ОСТАТЬСЯ НА СВЯЗИ
 
-<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&pause=1000&color=00D4FF&center=true&vCenter=true&width=600&lines=Автоматический+сборщик+VLESS+конфигов;Обновление+каждый+час+%F0%9F%94%84;TCP+%E2%86%92+TLS+%E2%86%92+Xray+проверка;Только+рабочие+конфиги+%E2%9C%85" alt="Typing SVG" />
+<img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&pause=1000&color=00D4FF&center=true&vCenter=true&width=700&lines=Автоматический+сборщик+VLESS+конфигов;Обновление+каждый+2ч+%F0%9F%94%84;TCP+%E2%86%92+TLS+%E2%86%92+Xray+проверка;Multi-fp+%2B+ASN+%2B+SNI+%D1%80%D0%BE%D1%82%D0%B0%D1%86%D0%B8%D1%8F;%D0%9E%D0%B1%D1%85%D0%BE%D0%B4+%D0%A2%D0%A1%D0%9F%D0%A3+v4.0+%22Siberian+Pro%22;%D0%A2%D0%BE%D0%BB%D1%8C%D0%BA%D0%BE+%D1%80%D0%B0%D0%B1%D0%BE%D1%87%D0%B8%D0%B5+%D0%BA%D0%BE%D0%BD%D1%84%D0%B8%D0%B3%D0%B8+%E2%9C%85" alt="Typing SVG" />
 
 <br/>
 
 [![Telegram](https://img.shields.io/badge/Telegram-@Remainingconnections-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Remainingconnections)
-[![Update](https://img.shields.io/badge/Обновление-каждый%20час-brightgreen?style=for-the-badge&logo=github-actions&logoColor=white)](../../actions/workflows/vless-parser.yml)
-[![Configs](https://img.shields.io/badge/Конфиги-200%20Xray%20%7C%20500%20TLS-blue?style=for-the-badge&logo=v2ray&logoColor=white)](./OSTATSYA_NA_SVYAZI.txt)
-[![Sources](https://img.shields.io/badge/Источники-500%2B-orange?style=for-the-badge&logo=rss&logoColor=white)](./source.txt)
+[![Update](https://img.shields.io/badge/Update-every%202h-brightgreen?style=for-the-badge&logo=github-actions&logoColor=white)](../../actions/workflows/check_and_update.yml)
+[![TSPU](https://img.shields.io/badge/TSPU-v4.0%20Siberian%20Pro-critical?style=for-the-badge&logo=shield&logoColor=white)](./tpsu_bypass.py)
+[![Configs](https://img.shields.io/badge/Configs-200%20Xray%20%7C%20500%20TLS-blue?style=for-the-badge&logo=v2ray&logoColor=white)](./OSTATSYA_NA_SVYAZI.txt)
+[![Sources](https://img.shields.io/badge/Sources-500%2B-orange?style=for-the-badge&logo=rss&logoColor=white)](./source.txt)
 
 </div>
 
