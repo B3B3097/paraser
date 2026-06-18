@@ -29,6 +29,17 @@ from config import (
     CHECK_TIME_BUDGET_SEC,
 )
 
+# ─── Новые модули Cloudflare/ТСПУ (v3.0 «Siberian+») ──────────────────────────
+try:
+    from cloudflare_checker import (
+        is_cf_ip, is_blocked_subnet, tpsu_config_score,
+    )
+    from sni_scanner import is_sni_whitelisted, is_sni_blacklisted, sni_classification
+    from cf_ip_utils import filter_cf_ips, ip_range_info
+    _NEW_MODULES_LOADED = True
+except ImportError:
+    _NEW_MODULES_LOADED = False
+
 # ─── Параметры проверки ───────────────────────────────────────────────────────
 TEST_CONNECT_TIMEOUT = 2
 TEST_READ_TIMEOUT    = 4
@@ -46,28 +57,44 @@ _GH_HEADERS = {"User-Agent": "vless-checker/2.0"}
 if GH_TOKEN:
     _GH_HEADERS["Authorization"] = f"Bearer {GH_TOKEN}"
 
-# ─── ТСПУ / DPI bypass константы ─────────────────────────────────────────────
-# Июнь 2026: «Siberian» — три сигнала (AND-логика)
-# Сигнал 1: подозрительная подсеть (Selectel, Яндекс.Облако и др.)
-# Сигнал 2: подозрительный TLS-фингерпринт (Chrome, Safari, iOS)
-# Сигнал 3: >3 параллельных TLS к одному SNI менее чем за 100 мс → mux на клиенте!
+# ─── ТСПУ / DPI bypass константы (v3.0 «Siberian+», обновлено 15 июня 2026) ──
+# Июнь 2026, волна с 5 июня: ТСПУ анализирует ClientHello при TLS handshake.
+# Три сигнала (AND-логика):
+#   Сигнал 1: подозрительная подсеть (Selectel, Яндекс.Облако, TimeWeb, Beget,
+#             Cloud.ru, FirstVDS, SpaceWeb — всего 15+ ASN)
+#   Сигнал 2: подозрительный TLS-фингерпринт (Chrome, Safari, iOS, random)
+#   Сигнал 3: >3 параллельных TLS к одному SNI менее чем за 100 мс → mux!
 #
 # Мы закрываем Сигнал 1 и Сигнал 2 на стороне подписки:
-#   • патчим fp= → firefox/edge
+#   • патчим fp= → firefox/edge/cnsa
 #   • деприоритизируем серверы на заблокированных AS
+#   • проверяем SNI домен на whitelist/blacklist ТСПУ
 
-# Фингерпринты, активирующие Сигнал 2 ТСПУ (семейство Chrome/Safari/iOS + random).
-# chrome106 — это тоже отпечаток Chrome → подозрительный. "randomized" может выпасть
-# в chrome/safari, поэтому тоже считаем плохим.
-TPSU_BAD_FP  = {"chrome", "chrome106", "safari", "ios", "random", "randomized", "chrome_auto"}
-# «Лояльные» фингерпринты (Habr июнь-2026): Firefox, Edge, Android OkHttp, 360, QQ.
-# Первый элемент используется как замена. Порядок = приоритет.
+# Фингерпринты, активирующие Сигнал 2 ТСПУ (Chrome/Safari/iOS + random).
+TPSU_BAD_FP = {
+    "chrome", "chrome106", "chrome_auto", "chrome110",
+    "safari", "safari_auto", "ios", "ios_auto",
+    "random", "randomized", "auto", "none", "", "default",
+}
+# «Лояльные» фингерпринты (Habr июнь-2026 + добавлены):
 TPSU_GOOD_FP = ["firefox", "edge", "android", "360", "qq"]
+# Экспериментальные безопасные fp (июнь 2026): CNSA помог многим с 9 июня
+TPSU_SAFE_FP_EXPERIMENTAL = ["cnsa", "opera", "brave", "vivaldi", "duckduckgo"]
 
-# ASN провайдеров, попадающих под Сигнал 1 (Selectel, Яндекс.Облако)
+# ASN провайдеров, попадающих под Сигнал 1
 TPSU_BLOCKED_ASNS = {
+    # ── Изначальные ──
     "AS197695", "AS47764", "AS210079", "AS60604",  # Selectel
     "AS200350", "AS13238",                          # Яндекс / Яндекс.Облако
+    # ── НОВЫЕ (июнь 2026) ──
+    "AS9123", "AS51789",      # TimeWeb / TimewebCloud
+    "AS198610", "AS213533",   # Beget
+    "AS208677",                # Cloud.ru
+    "AS44112",                 # SpaceWeb
+    "AS48642", "AS49392", "AS202984",  # FirstVDS / FirstByte / FirstDed
+    "AS43362",                 # Majordomo
+    "AS197068",                # Qrator Labs
+    "AS29182", "AS49505",     # FirstByte/IHC + Selectel Moscow
 }
 
 
@@ -328,9 +355,9 @@ def convert_link_via_xray(link: str) -> tuple[str, dict] | None:
 # ─── ТСПУ: патч fingerprint в URL ─────────────────────────────────────────────
 def _patch_link_fp(link: str) -> str:
     """
-    Патчит TLS-фингерпринт в ссылке.
-    ТСПУ «Siberian» (июнь 2026): chrome/safari/ios активируют Сигнал 2 → блокировка.
-    Заменяем на firefox — наименее подозрительный, широко используется.
+    Патчит TLS-фингерпринт в ссылке (v3.0 «Siberian+»).
+    Также проверяет fp через экспериментальные безопасные отпечатки (CNSA, Opera, Brave и др.).
+    Заменяем подозрительный fp на firefox.
     """
     if not link:
         return link
@@ -358,9 +385,14 @@ def _patch_link_fp(link: str) -> str:
         sec = (query.get("security") or "").lower()
         # TLS-подобный конфиг: REALITY, явный tls, либо присутствует reality-ключ (pbk).
         is_tls_like = sec in ("reality", "tls") or "pbk" in query
-        need_patch = fp in TPSU_BAD_FP or (fp == "" and is_tls_like)
+        # Проверяем: плохой fp ИЛИ пустой fp в TLS-конфиге ИЛИ неизвестный fp
+        need_patch = (fp in TPSU_BAD_FP or
+                      (fp == "" and is_tls_like) or
+                      (fp and fp not in TPSU_BAD_FP and
+                       fp not in [g.lower() for g in TPSU_GOOD_FP] and
+                       fp not in [g.lower() for g in TPSU_SAFE_FP_EXPERIMENTAL] and
+                       is_tls_like))
         if need_patch:
-            # Пустой fp у TLS/REALITY у большинства клиентов по умолчанию = chrome → палевно.
             query["fp"] = TPSU_GOOD_FP[0]
             new_query = urlencode(query)
             return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, new_query, parsed.fragment))
@@ -393,6 +425,8 @@ def _tpsu_link_score(link: str) -> int:
                 score += 1
 
         if fp in TPSU_GOOD_FP:
+            score += 2
+        elif fp in (g.lower() for g in TPSU_SAFE_FP_EXPERIMENTAL):
             score += 2
         elif fp in TPSU_BAD_FP:
             score -= 2
@@ -1015,7 +1049,7 @@ def main():
         "# Mux/XUDP: включите в клиенте (concurrency=8-16)",
         "#   v2rayNG: Конфиг → Настройки → Мультиплексирование → Вкл",
         "#   NekoRay: Outbound → Mux → Вкл, XUDP, concurrency=8",
-        "# Избегайте Selectel/Яндекс.Облако серверов (⚠️ метка)",
+        "# Избегайте Selectel/Яндекс.Облако/TimeWeb/Beget/Cloud.ru/FirstVDS/SpaceWeb серверов (⚠️ метка)",
         "# ──────────────────────────────────────────────────",
     ]
 
