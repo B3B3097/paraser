@@ -1,4 +1,4 @@
-name: OSTATSYA NA SVYAZI - Hourly Update
+name: OSTATSYA NA SVYAZI - Hourly Update (ТСПУ v3.0 «Siberian+»)
 
 on:
   schedule:
@@ -26,12 +26,20 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Cache Cloudflare IP list
+        id: cache-cf-ip
+        uses: actions/cache@v4
+        with:
+          path: misc/ip_list.txt
+          key: cf-ip-list-${{ hashFiles('misc/ip_list.txt') }}
+          restore-keys: cf-ip-list-
+
       - name: Install dependencies
         run: |
           python3 -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run checker
+      - name: Run checker (ТСПУ v3.0 «Siberian+»)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 checker.py
@@ -41,6 +49,7 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add -f v2ray_sub.txt valid_internet_links.txt valid_whitelist_links.txt 2>/dev/null || true
+          git add cloudflare_checker.py cf_ip_utils.py sni_scanner.py stats.json 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "Net izmenenij"
             exit 0

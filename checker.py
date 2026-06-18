@@ -692,8 +692,17 @@ def add_country_to_remarks(
             patched_fp_count += 1
             link = patched_link
 
+        if _NEW_MODULES_LOADED:
+            cf_hit = is_cf_ip(address)
+            if cf_hit:
+                cf_hint = " ☁️"
+            else:
+                cf_hint = ""
+        else:
+            cf_hint = ""
+
         speed_str = f"{speed / 1024:.1f}MB/s" if speed >= 1024 else f"{speed:.0f}KB/s"
-        new_remark = f"{warning}{country_emoji} {prefix}#{idx} {speed_str} {latency:.0f}ms"
+        new_remark = f"{warning}{country_emoji}{cf_hint} {prefix}#{idx} {speed_str} {latency:.0f}ms"
         renamed_links.append((speed, latency, new_remark, set_link_remark(link, new_remark)))
 
     if patched_fp_count:
@@ -889,7 +898,8 @@ def _cap(items: list, n: int) -> list:
 def main():
     print("=" * 60)
     print("  ОСТАТЬСЯ НА СВЯЗИ — Автоматический чекер конфигов")
-    print("  ТСПУ-bypass: fp=firefox, фильтр Selectel/Яндекс AS")
+    print("  ТСПУ-bypass: fp=firefox, фильтр 18 ASN, CF-транзит, SNI-детект")
+    print("  Модули: cloudflare_checker + sni_scanner + cf_ip_utils (v3.0 «Siberian+»)")
     print("=" * 60)
 
     try:
@@ -943,8 +953,23 @@ def main():
     # Предварительная ТСПУ-сортировка: конфиги с firefox/edge идут первыми
     # Это повышает шанс попасть в топ ещё до реальной проверки скорости
     print("\n[+] Предварительная ТСПУ-сортировка (приоритет firefox/edge fingerprint)...")
-    raw_links_internet.sort(key=_tpsu_link_score, reverse=True)
-    raw_links_whitelist.sort(key=_tpsu_link_score, reverse=True)
+    if _NEW_MODULES_LOADED:
+        # Расширенная сортировка с учётом Cloudflare и SNI
+        def _tpsu_score_enriched(link: str) -> int:
+            score = _tpsu_link_score(link)
+            address = get_link_address(link)
+            if address:
+                if is_cf_ip(address):
+                    score += 1  # Cloudflare-транзит = бонус
+                _, asn = detect_ip_info(address)
+                if asn in TPSU_BLOCKED_ASNS:
+                    score -= 3  # заблокированная подсеть = штраф
+            return score
+        raw_links_internet.sort(key=_tpsu_score_enriched, reverse=True)
+        raw_links_whitelist.sort(key=_tpsu_score_enriched, reverse=True)
+    else:
+        raw_links_internet.sort(key=_tpsu_link_score, reverse=True)
+        raw_links_whitelist.sort(key=_tpsu_link_score, reverse=True)
     
     fp_internet_bad = sum(1 for l in raw_links_internet if _tpsu_link_score(l) < 0)
     fp_internet_good = sum(1 for l in raw_links_internet if _tpsu_link_score(l) > 0)
@@ -1050,6 +1075,8 @@ def main():
         "#   v2rayNG: Конфиг → Настройки → Мультиплексирование → Вкл",
         "#   NekoRay: Outbound → Mux → Вкл, XUDP, concurrency=8",
         "# Избегайте Selectel/Яндекс.Облако/TimeWeb/Beget/Cloud.ru/FirstVDS/SpaceWeb серверов (⚠️ метка)",
+        "# ☁️ = Cloudflare-транзит (сниженный риск блокировки по подсети)",
+        "# Новые модули: cloudflare_checker • sni_scanner • cf_ip_utils (v3.0 «Siberian+»)",
         "# ──────────────────────────────────────────────────",
     ]
 

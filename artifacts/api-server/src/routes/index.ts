@@ -4,6 +4,7 @@ import sourcesRouter from "./sources.js";
 import configsRouter from "./configs.js";
 import checkerRouter from "./checker.js";
 import exportRouter from "./export.js";
+import tpsuRouter from "./tpsu.js";
 
 const router: IRouter = Router();
 
@@ -12,5 +13,6 @@ router.use(sourcesRouter);
 router.use(configsRouter);
 router.use(checkerRouter);
 router.use(exportRouter);
+router.use(tpsuRouter);
 
 export default router;

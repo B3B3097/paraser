@@ -97,6 +97,39 @@ https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls
 
 ---
 
+## 🛡️ ТСПУ v3.0 «Siberian+» — защита от блокировок (июнь 2026)
+
+С 5 июня 2026 года ТСПУ (технические средства противодействия угрозам) РКН
+начало блокировать прокси-соединения по трём сигналам:
+
+| Сигнал | Что анализирует | Наше решение |
+|:------:|:---------------|:------------|
+| **1** | Подсеть сервера (ASN Selectel, Яндекс, TimeWeb, Beget, Cloud.ru, FirstVDS, SpaceWeb — 18 ASN) | Анализ `.env` + деприоритизация ⚠️ |
+| **2** | TLS-fingerprint (Chrome, Safari, iOS, random — 14 плохих fp) | Патч → `firefox` |
+| **3** | Параллельные TLS к одному SNI (<100 мс → mux) | На стороне подписки |
+
+### Модули
+
+| Файл | Назначение |
+|:-----|:-----------|
+| `cloudflare_checker.py` | Ядро: ТСПУ-константы, Cloudflare-пробинг TCP→TLS→HTTP |
+| `cf_ip_utils.py` | Утилиты для Cloudflare IP (3191 префикс из `misc/ip_list.txt`) |
+| `sni_scanner.py` | Сканер SNI-доменов: whitelist/blacklist, детектор DPI-блокировок |
+
+### Fingerprint-ы
+
+- **Плохие (14):** `chrome`, `chrome106`, `chrome110`, `chrome_auto`, `safari`, `safari_auto`, `ios`, `ios_auto`, `random`, `randomized`, `auto`, `none`, `""` (пустой), `default`
+- **Хорошие (5):** `firefox`, `edge`, `android`, `360`, `qq`
+- **Экспериментальные (5):** `cnsa`, `opera`, `brave`, `vivaldi`, `duckduckgo` — CNSA 1.3 Suite помог многим с 9 июня
+
+<div align="center">
+
+*Все изменения обратно совместимы: модули подключаются опционально (try/except ImportError)*
+
+</div>
+
+---
+
 ## ⚙️ Как работает пайплайн
 
 ```
@@ -107,6 +140,9 @@ https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls
      │
      ▼
 🔍 Парсинг VLESS URI + авто-декод Base64  →  дедупликация по uuid@host:port
+     │
+     ▼
+🛡️ ТСПУ-фильтр v3.0 «Siberian+»: fp → firefox, ASN-блоклист (18 провайдеров), CF-транзит
      │
      ▼
 🔌 Stage 1 — TCP         80 потоков │ 5s timeout  →  убираем мёртвые хосты
@@ -123,10 +159,10 @@ https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls
    измеряет: latency + скорость МБ/с
      │
      ▼
-🌍 Геолокация ip-api.com  →  флаг страны 🇩🇪🇳🇱🇺🇸
+🌍 Геолокация ip-api.com  →  флаг страны 🇩🇪🇳🇱🇺🇸 + ☁️ CF-транзит
      │
      ▼
-📊 Сортировка: ⭐ whitelisted → быстрее → меньше задержка
+📊 Сортировка: ТСПУ-score → ⭐ whitelisted → быстрее → меньше задержка
      │
      ▼
 ✅ топ 200 → OSTATSYA_NA_SVYAZI.txt + base64
@@ -146,8 +182,11 @@ https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls
 | [`OSTATSYA_NA_SVYAZI_tcptls_base64.txt`](./OSTATSYA_NA_SVYAZI_tcptls_base64.txt) | ⚡ То же, в Base64 |
 | [`stats.json`](./stats.json) | 📊 Статистика последнего запуска |
 | [`source.txt`](./source.txt) | 📋 Список источников |
-| [`parser.py`](./parser.py) | 🐍 Парсер v8 (3 стадии) |
-| [`.github/workflows/vless-parser.yml`](./.github/workflows/vless-parser.yml) | ⚙️ GitHub Actions workflow |
+| [`parser.py`](./parser.py) | 🐍 Парсер v10 (3 стадии + ТСПУ v3.0) |
+| [`cloudflare_checker.py`](./cloudflare_checker.py) | 🛡️ ТСПУ-константы, CF-пробинг TCP→TLS→HTTP |
+| [`cf_ip_utils.py`](./cf_ip_utils.py) | ☁️ Утилиты Cloudflare IP (3191 префикс) |
+| [`sni_scanner.py`](./sni_scanner.py) | 🔍 Сканер SNI-доменов, DPI-детектор |
+| [`.github/workflows/check_and_update.yml`](./.github/workflows/check_and_update.yml) | ⚙️ GitHub Actions workflow |
 
 </div>
 
@@ -167,7 +206,9 @@ https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls
   "avg_speed_mbps":   "...",    // средняя скорость подтверждённых конфигов
   "whitelisted_pool": 12419,    // в whitelist (приоритетные)
   "output_xray":      200,      // в подписке Xray
-  "output_tcptls":    500       // в подписке TCP+TLS
+  "output_tcptls":    500,      // в подписке TCP+TLS
+  "tpsu_blocked_asns": 18,      // ASN под ТСПУ-фильтрацией
+  "tpsu_module": "v3.0 Siberian+"  // модуль обхода блокировок
 }
 ```
 
@@ -218,6 +259,7 @@ https://yoursite.com/sub/token123                             ← подписк
 <br/>
 
 *Автоматически обновляется каждый час через GitHub Actions*  
+*ТСПУ v3.0 «Siberian+» — защита от DPI-блокировок (июнь 2026)*  
 *Все конфиги берутся из открытых публичных источников*
 
 </div>

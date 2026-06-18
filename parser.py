@@ -45,6 +45,48 @@ FALLBACK_URL2  = "http://speedtest.tele2.net/1MB.zip"
 MIN_SPEED_MBPS = 0.05   # минимум ~50 KB/s — фильтр мёртвых конфигов
 CHUNK_SIZE     = 4096
 
+# ─── ТСПУ / DPI bypass константы (v3.0 «Siberian+», обновлено 15 июня 2026) ──
+# Июнь 2026, волна с 5 июня: ТСПУ анализирует ClientHello при TLS handshake.
+# Три сигнала (AND-логика):
+#   Сигнал 1: подозрительная подсеть (Selectel, Яндекс.Облако, TimeWeb, Beget,
+#             Cloud.ru, FirstVDS, SpaceWeb — всего 18 ASN)
+#   Сигнал 2: подозрительный TLS-фингерпринт (Chrome, Safari, iOS, random)
+#   Сигнал 3: >3 параллельных TLS к одному SNI менее чем за 100 мс → mux!
+
+TPSU_BAD_FP = {
+    "chrome", "chrome106", "chrome_auto", "chrome110",
+    "safari", "safari_auto", "ios", "ios_auto",
+    "random", "randomized", "auto", "none", "", "default",
+}
+TPSU_GOOD_FP = ["firefox", "edge", "android", "360", "qq"]
+TPSU_SAFE_FP_EXPERIMENTAL = ["cnsa", "opera", "brave", "vivaldi", "duckduckgo"]
+
+TPSU_BLOCKED_ASNS = {
+    "AS197695", "AS47764", "AS210079", "AS60604",  # Selectel
+    "AS200350", "AS13238",                          # Яндекс / Яндекс.Облако
+    "AS9123", "AS51789",      # TimeWeb / TimewebCloud
+    "AS198610", "AS213533",   # Beget
+    "AS208677",                # Cloud.ru
+    "AS44112",                 # SpaceWeb
+    "AS48642", "AS49392", "AS202984",  # FirstVDS / FirstByte / FirstDed
+    "AS43362",                 # Majordomo
+    "AS197068",                # Qrator Labs
+    "AS29182", "AS49505",     # FirstByte/IHC + Selectel Moscow
+}
+
+def _patch_fp(fp: Optional[str]) -> str:
+    """Возвращает безопасный fingerprint или firefox по умолчанию."""
+    if not fp:
+        return "firefox"
+    fp_lower = fp.lower().strip()
+    if fp_lower in TPSU_BAD_FP:
+        return "firefox"
+    if fp_lower in (g.lower() for g in TPSU_GOOD_FP):
+        return fp_lower
+    if fp_lower in (g.lower() for g in TPSU_SAFE_FP_EXPERIMENTAL):
+        return fp_lower
+    return "firefox"  # неизвестный fp → безопасный дефолт
+
 XRAY_PATH    = os.environ.get("XRAY_PATH",    "/tmp/xray")
 SINGBOX_PATH = os.environ.get("SINGBOX_PATH", "/tmp/sing-box")
 GH_TOKEN     = os.environ.get("GITHUB_TOKEN", "")
@@ -402,7 +444,7 @@ def _singbox_cfg(cfg: Vless, port: int) -> dict:
             "insecure":    True,
             "utls": {
                 "enabled":     True,
-                "fingerprint": cfg.fp or "firefox",
+                "fingerprint": _patch_fp(cfg.fp),
             },
         }
         if sec == "reality":
@@ -479,7 +521,7 @@ def _xray_cfg(cfg: Vless, port: int) -> dict:
         stream["security"] = "reality"
         stream["realitySettings"] = {
             "serverName":  cfg.sni or cfg.host,
-            "fingerprint": cfg.fp  or "firefox",
+            "fingerprint": _patch_fp(cfg.fp),
             "publicKey":   cfg.pbk or "",
             "shortId":     cfg.sid or "",
         }
@@ -488,7 +530,7 @@ def _xray_cfg(cfg: Vless, port: int) -> dict:
         stream["tlsSettings"] = {
             "serverName":    cfg.sni or cfg.host,
             "allowInsecure": True,
-            "fingerprint":   cfg.fp  or "firefox",
+            "fingerprint":   _patch_fp(cfg.fp),
         }
 
     user: dict = {"id": cfg.uuid, "encryption": "none"}
@@ -875,6 +917,8 @@ async def main() -> None:
         "xray_used":        xr_ok,
         "xray_fallback":    (sb_ok or xr_ok) and confirmed == 0,
         "success_rate":     round(len(tcp_pass)/len(all_cfgs)*100, 1) if all_cfgs else 0,
+        "tpsu_blocked_asns": len(TPSU_BLOCKED_ASNS),
+        "tpsu_module":      "v3.0 Siberian+",
     }
     with open("stats.json", "w", encoding="utf-8") as f:
         json.dump(stats, f, indent=2, ensure_ascii=False)
@@ -886,6 +930,8 @@ async def main() -> None:
     print(f"""
   OSTATSYA_NA_SVYAZI.txt        — {n_xray} configs  {label}
   OSTATSYA_NA_SVYAZI_tcptls.txt — {n_tcptls} configs
+  TСПУ-v3.0 «Siberian+»: fp=firefox, патч в конфиг-билдерах sing-box/Xray
+    ASN под фильтром: {len(TPSU_BLOCKED_ASNS)} провайдеров
   Done. fetched={len(all_cfgs)} tcp={len(tcp_pass)} tls={tls_confirmed} confirmed={confirmed} white={white_cnt}
 """)
 

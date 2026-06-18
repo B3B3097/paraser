@@ -1,7 +1,25 @@
 import { useGetConfigStats, getGetConfigStatsQueryKey, useGetCheckerStatus, getGetCheckerStatusQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { Activity, ServerCrash, ShieldCheck, Server, AlertCircle } from "lucide-react";
+import { Activity, ServerCrash, ShieldCheck, Server, AlertCircle, Shield, CloudRain } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+
+interface TPSUStats {
+  version: string;
+  blocked_asns: number;
+  bad_fingerprints: number;
+  good_fingerprints: string[];
+  experimental_fp: string[];
+  safe_front_sni: number;
+  blacklist_sni: number;
+  stats_json: Record<string, unknown> | null;
+}
+
+const fetchTpsu = async (): Promise<TPSUStats> => {
+  const res = await fetch("/api/tpsu");
+  if (!res.ok) throw new Error("TPSU endpoint error");
+  return res.json();
+};
 
 export default function Dashboard() {
   const { data: checkerStatus } = useGetCheckerStatus({
@@ -16,6 +34,12 @@ export default function Dashboard() {
       queryKey: getGetConfigStatsQueryKey(),
       refetchInterval: 5000,
     }
+  });
+
+  const { data: tpsu } = useQuery<TPSUStats>({
+    queryKey: ["tpsu"],
+    queryFn: fetchTpsu,
+    refetchInterval: 30000,
   });
 
   return (
@@ -80,6 +104,51 @@ export default function Dashboard() {
         />
       </div>
       
+      {tpsu && (
+        <Card className="bg-card border-border border-primary/30">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg font-mono flex items-center gap-2 text-primary">
+              <Shield className="h-5 w-5" />
+              TPSU_BYPASS :: {tpsu.version}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4 text-sm font-mono">
+              <div>
+                <span className="text-muted-foreground">Blocked ASNs</span>
+                <div className="text-xl font-bold text-destructive">{tpsu.blocked_asns}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Bad Fingerprints</span>
+                <div className="text-xl font-bold text-destructive">{tpsu.bad_fingerprints}</div>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Safe Front SNI</span>
+                <div className="text-xl font-bold text-green-400">{tpsu.safe_front_sni}</div>
+              </div>
+            </div>
+            <div className="flex gap-1 mt-3 flex-wrap text-xs">
+              <span className="text-muted-foreground">Good FP:</span>
+              {tpsu.good_fingerprints.map((fp) => (
+                <code key={fp} className="bg-green-900/30 text-green-300 px-1 rounded">{fp}</code>
+              ))}
+              <span className="text-muted-foreground ml-2">Experimental:</span>
+              {tpsu.experimental_fp.map((fp) => (
+                <code key={fp} className="bg-blue-900/30 text-blue-300 px-1 rounded">{fp}</code>
+              ))}
+            </div>
+            {tpsu.stats_json && (
+              <div className="flex gap-3 mt-3 text-xs text-muted-foreground font-mono border-t border-border pt-2">
+                <CloudRain className="h-3 w-3 mt-0.5 text-blue-400" />
+                <span>CF IPs: {String((tpsu.stats_json as any).cloudflare_ips ?? "N/A")}</span>
+                <span>Success: {String((tpsu.stats_json as any).success_rate ?? "N/A")}%</span>
+                <span>Avg speed: {String((tpsu.stats_json as any).avg_speed_mbps ?? "N/A")} Mbps</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
          <Card className="bg-card border-border">
           <CardHeader>
