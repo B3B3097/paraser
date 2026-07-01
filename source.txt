@@ -3620,3 +3620,14 @@ https://white-lists.vercel.app/api/filter?code=DE&type=white&min=false
 https://white-lists.vercel.app/api/filter?code=NL&type=white&min=false
 https://white-lists.vercel.app/api/filter?code=RU&type=white&min=false
 https://wlr.s3-website.cloud.ru/zNhbYZtBc
+
+# Источники из ru-gaming-blocklist
+https://github.com/medvedeff-true/ru-gaming-blocklist
+
+# Источники из ru-routing-dat
+https://cdn.jsdelivr.net/gh/GrimbirdUsers/ru-routing-dat@main/geosite.dat
+https://cdn.jsdelivr.net/gh/GrimbirdUsers/ru-routing-dat@main/geoip.dat
+https://github.com/GrimbirdUsers/ru-routing-dat
+
+# Источники из v2ray-config-collector
+https://github.com/swileran/v2ray-config-collector

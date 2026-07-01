@@ -195,6 +195,21 @@ https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls
 
 ## ➕ Добавить источник
 
+Мы постоянно расширяем список источников, чтобы обеспечить максимальное количество рабочих конфигов. Если вы хотите предложить новый источник, добавьте его в `source.txt` или создайте Pull Request.
+
+### Рекомендуемые источники для добавления:
+
+*   **ru-gaming-blocklist**: Списки доменов и IP-адресов игровых сервисов, недоступных или ограниченных в РФ. Может быть использован для фильтрации трафика или приоритизации неигрового трафика.
+    *   [GitHub Repository](https://github.com/medvedeff-true/ru-gaming-blocklist)
+*   **ru-routing-dat**: Пользовательские `geosite.dat` + `geoip.dat` для российского split-tunneling. Содержит категории для российских сервисов (Яндекс, VK, Ozon и т.д.) и заблокированного контента.
+    *   [GitHub Repository](https://github.com/GrimbirdUsers/ru-routing-dat)
+    *   [geosite.dat (CDN)](https://cdn.jsdelivr.net/gh/GrimbirdUsers/ru-routing-dat@main/geosite.dat)
+    *   [geoip.dat (CDN)](https://cdn.jsdelivr.net/gh/GrimbirdUsers/ru-routing-dat@main/geoip.dat)
+*   **v2ray-config-collector**: Инструмент для сбора, обработки и валидации конфигураций V2Ray из множества источников.
+    *   [GitHub Repository](https://github.com/swileran/v2ray-config-collector)
+
+
+
 Открой [`source.txt`](./source.txt) и добавь URL на новой строке:
 
 ```
