@@ -48,12 +48,11 @@
 - `whitelist_cidr.txt` — 28,247 CIDR блоков для whitelist
 - `whitelist_sni.txt` — 23,836 рабочих российских SNI доменов
 
-## 🔧 Технологии
-- Python 3.12 + Xray core
-- GitHub Actions (cron каждые 2 часа)
-- Multi-threaded проверка
-- Поддержка v2rayNG, Hiddify, Nekoray, Streisand
+
+## 📢 Сообщество
+
+Подписывайся на Telegram-канал — там больше подписок, апдейты и обсуждения:
+**👉 [@REMAININGCONNECTIONS](https://t.me/REMAININGCONNECTIONS)**
 
 ---
 
-**Важно:** Gaming и Stealth подписки (`OSTATSYA_NA_SVYAZI_gaming.txt` и `OSTATSYA_NA_SVYAZI_stealth.txt`) **не существуют** в репозитории. Они были упомянуты в README, но файлы не создаются.
