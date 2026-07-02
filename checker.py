@@ -826,6 +826,17 @@ def _collect_from_repo(repo_url: str) -> list[str]:
     return all_links
 
 
+def _fetch_url_with_retries(url: str, retries: int = 3, delay: int = 5) -> str | None:
+    for i in range(retries):
+        try:
+            req = Request(url, headers={"User-Agent": "v2ray-checker"})
+            with urlopen(req, timeout=10) as r:
+                return r.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            print(f"  [ПРЕДУПРЕЖДЕНИЕ] Не удалось загрузить {url} (попытка {i+1}/{retries}): {e}")
+            time.sleep(delay)
+    return None
+
 def parse_subscription(source: str | None) -> list[str]:
     """Загружает подписку по ссылке или разбирает сырую строку."""
     if not source:
@@ -844,24 +855,32 @@ def parse_subscription(source: str | None) -> list[str]:
 
     if source.startswith(("http://", "https://")):
         try:
-            req = Request(source, headers={"User-Agent": "v2ray-checker"})
-            with urlopen(req, timeout=10) as r:
-                source = r.read().decode("utf-8", errors="replace")
-        except Exception as e:
-            print(f"  [ОШИБКА] Не удалось загрузить подписку: {e}")
-            # Файл мог быть переименован/удалён — пробуем просканировать весь репозиторий
-            repo = _github_repo_url(original)
-            if repo:
-                return _collect_from_repo(repo)
-            return []
+            fetched_content = _fetch_url_with_retries(source)
+            if fetched_content is None:
+                print(f"  [ОШИБКА] Не удалось загрузить подписку после нескольких попыток: {source}")
+                repo = _github_repo_url(original)
+                if repo:
+                    print(f"  [ИНФО] Попытка собрать конфиги из репозитория: {repo}")
+                    return _collect_from_repo(repo)
+                return []
+            source = fetched_content
 
     if not source.startswith(("vless://", "vmess://", "trojan://", "ss://")):
         try:
-            missing_padding = len(source) % 4
-            if missing_padding: source += "=" * (4 - missing_padding)
-            source = base64.b64decode(source).decode("utf-8", errors="replace")
+            # Попытка декодировать как Base64, если это не прямая ссылка
+            decoded_source = _decode_base64_text(source)
+            if decoded_source.startswith(("vless://", "vmess://", "trojan://", "ss://")):
+                source = decoded_source
+            else:
+                # Если не Base64 и не прямая ссылка, возможно, это HTML-страница с embedded ссылками
+                # TODO: Добавить парсинг HTML для извлечения ссылок
+                pass
         except Exception:
             pass
+
+    # Если после всех попыток source все еще не начинается с протокола, пропускаем
+    if not source.startswith(("vless://", "vmess://", "trojan://", "ss://")):
+        return []
 
     source = html.unescape(source)
     pattern = re.compile(r"(?:vless|vmess|trojan|ss)://[^\s<>\'\"]+")

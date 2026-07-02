@@ -3631,3 +3631,7 @@ https://github.com/GrimbirdUsers/ru-routing-dat
 
 # Источники из v2ray-config-collector
 https://github.com/swileran/v2ray-config-collector
+
+# Новые белые ссылки (WL)
+https://raw.githubusercontent.com/zieng2/wl/refs/heads/main/vless_lite.txt
+https://raw.githubusercontent.com/zieng2/wl/refs/heads/main/vless_universal.txt
