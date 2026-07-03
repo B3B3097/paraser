@@ -598,6 +598,22 @@ def save_results(links: list[str], output_path: str) -> None:
         for link in links:
             f.write(f"{link}\n")
 
+def update_repo_description(total_cfgs: int, update_time: str) -> None:
+    """Обновляет описание репозитория через GitHub CLI."""
+    try:
+        # Формат: "Подписка | 123 конфигов | Обновлено: 2026-07-01 12:00 UTC"
+        description = f"Подписка | {total_cfgs} конфигов | Обновлено: {update_time}"
+        
+        # Получаем владельца и имя репозитория
+        repo_info = subprocess.check_output(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], text=True).strip()
+        
+        # Выполняем команду обновления
+        subprocess.run(["gh", "repo", "edit", repo_info, "--description", description], check=True)
+        print(f"[+] Описание репозитория обновлено: {description}")
+    except Exception as e:
+        print(f"[-] Ошибка при обновлении описания репозитория: {e}")
+
+
 
 # ─── Гео / провайдер ──────────────────────────────────────────────────────────
 @lru_cache(maxsize=2048)
@@ -1140,7 +1156,13 @@ def main():
     with open(output_sub, "w", encoding="utf-8") as f:
         f.write("\n".join(final_lines))
     print(f"[+] Финальный файл подписки: {output_sub}")
-    print(f"    Всего конфигов: {len(valid_links_internet) + len(valid_links_whitelist)}")
+    
+    total_count = len(valid_links_internet) + len(valid_links_whitelist)
+    print(f"    Всего конфигов: {total_count}")
+    
+    # Обновляем описание репозитория
+    update_repo_description(total_count, ts)
+    
     print("\n[ТСПУ] Все конфиги прошли обработку: fp=firefox, AS-метки проставлены")
     print("[TSPU] v4.0 \"Siberian Pro\": multi-fp, SNI rotation, operator classification")
 
