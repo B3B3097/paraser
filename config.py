@@ -6,8 +6,15 @@ load_dotenv()
 raw_internet_subs = os.getenv("INTERNET_SUBS_POOL", "")
 INTERNET_SUBS_POOL = [url.strip() for url in raw_internet_subs.split(",") if url.strip()]
 
+DEFAULT_WHITELIST_SUBS = [
+    "https://raw.githubusercontent.com/zieng2/wl/refs/heads/main/vless_lite.txt",
+    "https://raw.githubusercontent.com/zieng2/wl/refs/heads/main/vless_universal.txt",
+]
+
 raw_whitelist_subs = os.getenv("WHITELISTED_SUBS_POOL", "")
 WHITELISTED_SUBS_POOL = [url.strip() for url in raw_whitelist_subs.split(",") if url.strip()]
+if not WHITELISTED_SUBS_POOL:
+    WHITELISTED_SUBS_POOL = DEFAULT_WHITELIST_SUBS
 
 INTERNET_CFGS_COUNT = int(os.getenv("INTERNET_CFGS_COUNT", 10))
 WHITELISTED_CFGS_COUNT = int(os.getenv("WHITELISTED_CFGS_COUNT", 500))
