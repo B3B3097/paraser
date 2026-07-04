@@ -880,6 +880,9 @@ def parse_subscription(source: str | None) -> list[str]:
                     return _collect_from_repo(repo)
                 return []
             source = fetched_content
+        except Exception as e:
+            print(f"  [ОШИБКА] Произошла ошибка при загрузке: {e}")
+            return []
 
     if not source.startswith(("vless://", "vmess://", "trojan://", "ss://")):
         try:
