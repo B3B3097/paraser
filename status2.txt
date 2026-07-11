@@ -1,0 +1,7 @@
+{
+  "last_update": "2026-07-11 23:00 UTC",
+  "internet_count": 0,
+  "whitelist_count": 0,
+  "total_count": 0,
+  "checker_status": "ready"
+}

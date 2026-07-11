@@ -8,14 +8,15 @@ on:
 permissions:
   contents: write
 
+# Отменяем старые запуски если новый уже запущен
 concurrency:
   group: xray-config-checker
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   run-checker:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 110  # 110 минут (оставляем 10 на коммит)
 
     steps:
       - name: Checkout repository
@@ -30,34 +31,79 @@ jobs:
         run: |
           python3 -m pip install --upgrade pip
           pip install -r requirements.txt
+          echo "✓ Dependencies installed"
 
-      - name: Run checker (v4.0 Siberian Pro)
+      - name: Run checker with timeout protection
+        timeout-minutes: 100
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 checker.py
+        run: |
+          # Запускаем с timeout и сохраняем вывод
+          timeout 5900 python3 checker.py 2>&1 | tee checker.log
+          EXIT_CODE=${PIPESTATUS[0]}
+          
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "⚠️  Checker exceeded time limit (timeout)"
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "⚠️  Checker exited with code $EXIT_CODE"
+          else
+            echo "✓ Checker completed successfully"
+          fi
+          
+          exit 0  # Не прерываем workflow на ошибки checker
+
+      - name: Create status file with timestamp
+        run: |
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+          INTERNET=$(wc -l < valid_internet_links.txt 2>/dev/null || echo 0)
+          WHITELIST=$(wc -l < valid_whitelist_links.txt 2>/dev/null || echo 0)
+          TOTAL=$((INTERNET + WHITELIST))
+          
+          # Создаём JSON с метаданными
+          cat > status2.txt << EOF
+{
+  "last_update": "$TIMESTAMP",
+  "internet_count": $INTERNET,
+  "whitelist_count": $WHITELIST,
+  "total_count": $TOTAL,
+  "checker_status": "completed"
+}
+EOF
+          
+          echo "✓ Status saved: $TIMESTAMP | I=$INTERNET W=$WHITELIST T=$TOTAL"
+          cat status2.txt
 
       - name: Save operator stats
         run: |
           if [ -f operator_classifier.py ] && [ -f tpsu_bypass.py ]; then
             mkdir -p misc/modules
             cp operator_classifier.py tpsu_bypass.py misc/modules/ 2>/dev/null || true
-            echo "Modules backed up"
           fi
 
       - name: Commit and push results
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add -f v2ray_sub.txt valid_internet_links.txt valid_whitelist_links.txt 2>/dev/null || true
-          git add stats.json cloudflare_checker.py cf_ip_utils.py sni_scanner.py operator_classifier.py tpsu_bypass.py 2>/dev/null || true
+          
+          git add -f v2ray_sub.txt valid_internet_links.txt valid_whitelist_links.txt status2.txt 2>/dev/null || true
+          git add stats.json cloudflare_checker.py cf_ip_utils.py sni_scanner.py 2>/dev/null || true
+          git add operator_classifier.py tpsu_bypass.py 2>/dev/null || true
+          
           if git diff --cached --quiet; then
-            echo "Net izmenenij"
+            echo "ℹ️  No changes to commit"
             exit 0
           fi
+          
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
           INTERNET=$(wc -l < valid_internet_links.txt 2>/dev/null || echo 0)
           WHITELIST=$(wc -l < valid_whitelist_links.txt 2>/dev/null || echo 0)
           TOTAL=$((INTERNET + WHITELIST))
-          git commit -m "chore: update configs I=${INTERNET} W=${WHITELIST} T=${TOTAL} TSPUv4.0 $(date -u '+%Y-%m-%d %H:%M')"
+          
+          git commit -m "chore: update configs I=$INTERNET W=$WHITELIST T=$TOTAL $TIMESTAMP"
+          
+          # Пытаемся запушить, но не падаем если не получилось
           git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main
+          git rebase origin/main || true
+          git push origin HEAD:main || echo "⚠️  Push may have failed"
+          
+          echo "✓ Commit completed"

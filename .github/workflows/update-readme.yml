@@ -1,0 +1,90 @@
+name: Update README with Current Status
+
+on:
+  workflow_run:
+    workflows: ["OSTATSYA NA SVYAZI - Hourly Update"]
+    types: [completed]
+  schedule:
+    - cron: "10 */2 * * *"  # +10 минут после check_and_update
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Update README timestamps
+        run: |
+          python3 << 'PYTHON_EOF'
+          import json
+          import re
+          from pathlib import Path
+          from datetime import datetime, timezone
+          
+          # Читаем status2.txt
+          status = {
+              "last_update": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+              "internet_count": 0,
+              "whitelist_count": 0,
+              "total_count": 0
+          }
+          
+          try:
+              if Path("status2.txt").exists():
+                  with open("status2.txt", "r") as f:
+                      content = f.read().strip()
+                      if content.startswith("{"):
+                          status = json.loads(content)
+          except Exception as e:
+              print(f"⚠️  Error reading status2.txt: {e}")
+          
+          last_update = status.get("last_update", "N/A")
+          
+          print(f"Updating README with: {last_update}")
+          
+          # Читаем README и обновляем ВСЕ даты одновременно
+          with open("README.md", "r", encoding="utf-8") as f:
+              content = f.read()
+          
+          # Простая замена: любое вхождение даты обновления
+          pattern = r"\*Последнее обновление: [^*]+\*"
+          replacement = f"*Последнее обновление: {last_update}*"
+          content = re.sub(pattern, replacement, content)
+          
+          with open("README.md", "w", encoding="utf-8") as f:
+              f.write(content)
+          
+          print("✓ README updated")
+          PYTHON_EOF
+
+      - name: Commit README update
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          git add README.md 2>/dev/null || true
+          
+          if git diff --cached --quiet; then
+            echo "ℹ️  No README changes"
+            exit 0
+          fi
+          
+          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+          git commit -m "docs: auto-update timestamps - $TIMESTAMP"
+          git fetch origin main
+          git rebase origin/main || true
+          git push origin HEAD:main || echo "⚠️  Push failed"
