@@ -599,16 +599,24 @@ def save_results(links: list[str], output_path: str) -> None:
             f.write(f"{link}\n")
 
 def update_repo_description(total_cfgs: int, update_time: str) -> None:
-    """Обновляет описание репозитория через GitHub CLI."""
+    """Обновляет описание репозитория через GitHub API (requests)."""
+    token = os.environ.get("GITHUB_TOKEN", "")
+    if not token:
+        print("[-] GITHUB_TOKEN не задан — описание репозитория не обновлено")
+        return
     try:
-        # Формат: "Подписка | 123 конфигов | Обновлено: 2026-07-01 12:00 UTC"
-        description = f"Подписка | {total_cfgs} конфигов | Обновлено: {update_time}"
-        
-        # Получаем владельца и имя репозитория
-        repo_info = subprocess.check_output(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], text=True).strip()
-        
-        # Выполняем команду обновления
-        subprocess.run(["gh", "repo", "edit", repo_info, "--description", description], check=True)
+        description = f"ОСТАТЬСЯ НА СВЯЗИ | {total_cfgs} конфигов | {update_time}"
+        resp = requests.patch(
+            "https://api.github.com/repos/B3B3097/paraser",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "User-Agent": "paraser-agent/4.0",
+                "Accept": "application/vnd.github+json",
+            },
+            json={"description": description},
+            timeout=10,
+        )
+        resp.raise_for_status()
         print(f"[+] Описание репозитория обновлено: {description}")
     except Exception as e:
         print(f"[-] Ошибка при обновлении описания репозитория: {e}")
@@ -1088,8 +1096,10 @@ def main():
         print(f"[+] Вайтлист-ссылки сохранены: {output_whitelist}")
 
     # Финальный файл подписки
-    from datetime import datetime, timezone
-    ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    from datetime import datetime, timezone, timedelta
+    TZ_MSK = timezone(timedelta(hours=3))
+    now_msk = datetime.now(TZ_MSK)
+    ts = now_msk.strftime("%d.%m.%Y %H:%M МСК")
     total_cfgs = len(valid_links_internet) + len(valid_links_whitelist)
 
     # Заголовки подписки (body-headers): клиенты, которые их читают (v2RayTun, Hiddify,
@@ -1099,7 +1109,7 @@ def main():
     EXPIRE_TS = 4102444800   # 2100-01-01 UTC
     TOTAL_BYTES = 1099511627776  # 1 TiB
     header = [
-        "#profile-title: ОСТАТЬСЯ НА СВЯЗИ🛜",
+        f"#profile-title: ОСТАТЬСЯ НА СВЯЗИ🛜 | {total_cfgs} конфигов | {ts}",
         "#profile-update-interval: 1",
         f"#subscription-userinfo: upload=0; download=0; total={TOTAL_BYTES}; expire={EXPIRE_TS}",
         f"#announce: ОСТАТЬСЯ НА СВЯЗИ | Авто-обновление каждый час | конфигов: {total_cfgs} | {ts}",
