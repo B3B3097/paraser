@@ -756,7 +756,7 @@ def add_country_to_remarks(
     if blocked_count:
         print(f"  [TSPU] Помечено на заблокированных AS: {blocked_count} конфигов")
     if operator_counts:
-        print(f"  [TSPU] Распределение по операторам:")
+        print("  [TSPU] Распределение по операторам:")
         for op_name, cnt in sorted(operator_counts.items(), key=lambda x: -x[1]):
             pct = cnt / len(valid_links) * 100
             print(f"         {op_name}: {cnt} ({pct:.1f}%)")
