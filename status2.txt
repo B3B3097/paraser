@@ -1,7 +1,7 @@
 {
-  "last_update": "2026-07-11 23:00 UTC",
-  "internet_count": 0,
-  "whitelist_count": 0,
-  "total_count": 0,
-  "checker_status": "ready"
+  "last_update_msk": "12.07.2026 12:42 MSK",
+  "internet_count": 4328,
+  "whitelist_count": 2751,
+  "total_count": 7079,
+  "checker_status": "completed"
 }
