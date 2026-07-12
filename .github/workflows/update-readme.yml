@@ -22,20 +22,20 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Update README with MSK time
+      - name: Update profile-title and README
         run: python3 update_meta.py
 
       - name: Commit and push
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add README.md
+          git add README.md v2ray_sub.txt
           if git diff --cached --quiet; then
             echo "No changes"
             exit 0
           fi
           STAMP=$(TZ=Europe/Moscow date '+%d.%m.%Y %H:%M MSK')
-          git commit -m "meta: README timestamp $STAMP"
+          git commit -m "meta: update subscription title and README $STAMP"
           git fetch origin main
           git rebase origin/main || git rebase --abort || true
           git push origin HEAD:main || echo "Push failed"
