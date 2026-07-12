@@ -2,7 +2,7 @@ name: OSTATSYA NA SVYAZI - Hourly Update
 
 "on":
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "0 */3 * * *"
   workflow_dispatch:
 
 permissions:
@@ -84,3 +84,4 @@ jobs:
           git fetch origin main
           git rebase origin/main || git rebase --abort || true
           git push origin HEAD:main || echo "Push failed, retry next run"
+
