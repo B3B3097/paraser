@@ -1,7 +1,7 @@
-#profile-title: ОСТАТЬСЯ НА СВЯЗИ🛜 | 7079 конфигов | 12.07.2026 07:07 МСК
+#profile-title: ОСТАТЬСЯ НА СВЯЗИ🛜 | 7079 конфигов | 12.07.2026 10:07 МСК
 #profile-update-interval: 1
 #subscription-userinfo: upload=0; download=0; total=1099511627776; expire=4102444800
-#announce: ОСТАТЬСЯ НА СВЯЗИ | 7079 конфигов | 12.07.2026 07:07 МСК
+#announce: ОСТАТЬСЯ НА СВЯЗИ | 7079 конфигов | 12.07.2026 10:07 МСК
 vless://ca6a7a70-4d44-433f-b727-1ed22ae7bf23@198.41.223.1:443?encryption=none&type=ws&host=proxy.nyarvex.kdns.fr&path=%2Fproxy&security=tls&alpn=http%2F1.1&fp=firefox&sni=proxy.nyarvex.kdns.fr#%F0%9F%87%BA%F0%9F%87%B8%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%E2%AD%90%231%2046.1MB%2Fs%20348ms
 vless://ca6a7a70-4d44-433f-b727-1ed22ae7bf23@198.41.223.1:443?alpn=http%2F1.1&ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&fp=firefox&host=proxy.nyarvex.kdns.fr&path=%2Fproxy&security=tls&sni=proxy.nyarvex.kdns.fr&type=ws#%F0%9F%87%BA%F0%9F%87%B8%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%E2%AD%90%232%2013.7MB%2Fs%201314ms
 vless://e4824193-4f54-453b-d037-88368e85ef0e@104.19.142.226:443?type=grpc&security=tls&sni=dat1.afterdomain.shop&fp=firefox#%F0%9F%87%BA%F0%9F%87%B8%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%E2%AD%90%233%2012.7MB%2Fs%20479ms
