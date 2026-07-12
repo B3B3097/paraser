@@ -19,6 +19,7 @@ operator_classifier.py — v4.0 «Siberian Pro» (июнь 2026)
 
 import ipaddress
 import json
+import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -166,7 +167,6 @@ def fetch_asn_info(host: str) -> Optional[dict]:
     Возвращает словарь с ключами as, org, isp, country, countryCode, query
     или None при ошибке.
     """
-    import socket as _socket
     global _asn_cache_hits, _asn_cache_misses
 
     # Проверяем кэш сначала по хосту
