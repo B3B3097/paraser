@@ -54,7 +54,7 @@ jobs:
 
       - name: Create status file with timestamp
         run: |
-          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+          TIMESTAMP=$(TZ='Europe/Moscow' date '+%d.%m.%Y %H:%M МСК')
           INTERNET=$(wc -l < valid_internet_links.txt 2>/dev/null || echo 0)
           WHITELIST=$(wc -l < valid_whitelist_links.txt 2>/dev/null || echo 0)
           TOTAL=$((INTERNET + WHITELIST))
@@ -62,7 +62,7 @@ jobs:
           # Создаём JSON с метаданными
           cat > status2.txt << EOF
 {
-  "last_update": "$TIMESTAMP",
+  "last_update_msk": "$TIMESTAMP",
   "internet_count": $INTERNET,
   "whitelist_count": $WHITELIST,
   "total_count": $TOTAL,
@@ -94,7 +94,7 @@ EOF
             exit 0
           fi
           
-          TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
+          TIMESTAMP=$(TZ='Europe/Moscow' date '+%d.%m.%Y %H:%M МСК')
           INTERNET=$(wc -l < valid_internet_links.txt 2>/dev/null || echo 0)
           WHITELIST=$(wc -l < valid_whitelist_links.txt 2>/dev/null || echo 0)
           TOTAL=$((INTERNET + WHITELIST))
