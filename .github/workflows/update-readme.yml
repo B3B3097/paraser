@@ -1,11 +1,11 @@
 name: Update README and Subscription Title
 
-on:
+"on":
   workflow_run:
     workflows: ["OSTATSYA NA SVYAZI - Hourly Update"]
     types: [completed]
   schedule:
-    - cron: "*/30 * * * *"  # каждые 30 минут — зацикленное обновление времени
+    - cron: "*/30 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -22,105 +22,56 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Update README and v2ray_sub.txt with MSK time and config count
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Update README with MSK time
         run: |
-          python3 << 'PYTHON_EOF'
-          import json, re, requests
-          from pathlib import Path
-          from datetime import datetime, timezone, timedelta
+          python3 - << 'PYEOF'
+import json, re
+from pathlib import Path
+from datetime import datetime, timezone, timedelta
 
-          TZ_MSK = timezone(timedelta(hours=3))
-          now = datetime.now(TZ_MSK)
-          ts_msk  = now.strftime("%d.%m.%Y %H:%M МСК")   # 11.07.2026 02:00 МСК
-          ts_full = now.strftime("%Y-%m-%d %H:%M МСК")   # 2026-07-11 02:00 МСК
+TZ_MSK = timezone(timedelta(hours=3))
+now = datetime.now(TZ_MSK)
+ts_msk = now.strftime("%d.%m.%Y %H:%M") + " МСК"
 
-          # ── Считываем status2.txt ──
-          total = 0
-          internet = 0
-          whitelist = 0
-          try:
-              raw = Path("status2.txt").read_text()
-              if raw.strip().startswith("{"):
-                  d = json.loads(raw)
-                  total    = int(d.get("total_count", 0))
-                  internet = int(d.get("internet_count", 0))
-                  whitelist= int(d.get("whitelist_count", 0))
-          except Exception as e:
-              print(f"Warning: status2.txt: {e}")
+total = 0
+try:
+    raw = Path("status2.txt").read_text()
+    if raw.strip().startswith("{"):
+        d = json.loads(raw)
+        total = int(d.get("total_count", 0))
+except Exception:
+    pass
+if total == 0 and Path("v2ray_sub.txt").exists():
+    with open("v2ray_sub.txt") as f:
+        total = sum(1 for l in f if l.startswith(("vless://","vmess://","trojan://","ss://")))
 
-          # Если total == 0 — считаем по файлу v2ray_sub.txt
-          if total == 0 and Path("v2ray_sub.txt").exists():
-              with open("v2ray_sub.txt") as f:
-                  total = sum(1 for l in f if l.startswith(("vless://","vmess://","trojan://","ss://")))
+print(f"Confs: {total} | Time: {ts_msk}")
 
-          print(f"Confs: {total} (I={internet} W={whitelist}) | Time: {ts_msk}")
-
-          # ── 1. Обновляем #profile-title в v2ray_sub.txt ──
-          if Path("v2ray_sub.txt").exists():
-              with open("v2ray_sub.txt", "r", encoding="utf-8") as f:
-                  lines = f.readlines()
-              new_title = f"#profile-title: ОСТАТЬСЯ НА СВЯЗИ🛜 | {total} конфигов | {ts_msk}\n"
-              for i, line in enumerate(lines):
-                  if line.startswith("#profile-title:"):
-                      lines[i] = new_title
-                      break
-              else:
-                  lines.insert(0, new_title)
-              # Также обновляем #announce
-              for i, line in enumerate(lines):
-                  if line.startswith("#announce:"):
-                      lines[i] = f"#announce: ОСТАТЬСЯ НА СВЯЗИ | {total} конфигов | {ts_msk}\n"
-                      break
-              with open("v2ray_sub.txt", "w", encoding="utf-8") as f:
-                  f.writelines(lines)
-              print("OK: v2ray_sub.txt updated")
-
-          # ── 2. Обновляем README.md ──
-          if Path("README.md").exists():
-              content = Path("README.md").read_text(encoding="utf-8")
-              # Заменяем все вхождения "Последнее обновление: ..."
-              pattern = r"\*Последнее обновление: [^*]+\*"
-              replacement = f"*Последнее обновление: {ts_msk}*"
-              new_content = re.sub(pattern, replacement, content)
-              Path("README.md").write_text(new_content, encoding="utf-8")
-              changed = new_content != content
-              print(f"OK: README.md updated (changed={changed})")
-
-          # ── 3. Обновляем описание репозитория через GitHub API ──
-          import os
-          token = os.environ.get("GITHUB_TOKEN", "")
-          if token:
-              try:
-                  desc = f"ОСТАТЬСЯ НА СВЯЗИ | {total} конфигов | {ts_msk}"
-                  r = requests.patch(
-                      "https://api.github.com/repos/B3B3097/paraser",
-                      headers={
-                          "Authorization": f"Bearer {token}",
-                          "User-Agent": "paraser-agent/4.0",
-                          "Accept": "application/vnd.github+json",
-                      },
-                      json={"description": desc},
-                      timeout=10,
-                  )
-                  r.raise_for_status()
-                  print(f"OK: repo description: {desc}")
-              except Exception as e:
-                  print(f"Warn: repo description: {e}")
-          PYTHON_EOF
+# Обновляем ТОЛЬКО README.md
+# v2ray_sub.txt обновляет только checker.py после реальной проверки конфигов
+if Path("README.md").exists():
+    content = Path("README.md").read_text(encoding="utf-8")
+    pattern = r"\*Последнее обновление: [^*]+\*"
+    replacement = f"*Последнее обновление: {ts_msk}*"
+    new_content = re.sub(pattern, replacement, content)
+    if new_content != content:
+        Path("README.md").write_text(new_content, encoding="utf-8")
+        print("OK: README.md updated")
+    else:
+        print("README.md: no change needed")
+PYEOF
 
       - name: Commit and push
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add v2ray_sub.txt README.md 2>/dev/null || true
+          git add README.md 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "No changes"
             exit 0
           fi
-          STAMP=$(date '+%d.%m.%Y %H:%M МСК' --date='TZ="Europe/Moscow"' 2>/dev/null || date -u '+%d.%m.%Y %H:%M МСК')
-          git commit -m "meta: update timestamps $STAMP"
+          STAMP=$(TZ=Europe/Moscow date '+%d.%m.%Y %H:%M MSK')
+          git commit -m "meta: README timestamp $STAMP"
           git fetch origin main
-          git rebase origin/main || true
+          git rebase origin/main || git rebase --abort || true
           git push origin HEAD:main || echo "Push failed"
