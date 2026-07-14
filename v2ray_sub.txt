@@ -1,4 +1,4 @@
-#profile-title: base64:0J7QodCi0JDQotCs0KHQryDQndCQINCh0JLQr9CX0Jjwn5ucIHwgNzA3OSDQutC+0L3RhNC40LPQvtCyIHwgMTQuMDcuMjAyNiAxMjo1MyBNU0s=
+#profile-title: base64:0J7QodCi0JDQotCs0KHQryDQndCQINCh0JLQr9CX0Jjwn5ucIHwgNzA3OSDQutC+0L3RhNC40LPQvtCyIHwgMTQuMDcuMjAyNiAxNToyOSBNU0s=
 #profile-update-interval: 1
 #subscription-userinfo: upload=0; download=0; total=1099511627776; expire=4102444800
 #announce: ОСТАТЬСЯ НА СВЯЗИ | 7079 конфигов | 12.07.2026 10:07 МСК
