@@ -8,29 +8,29 @@
 
 ### 1️⃣ Основная подписка (Xray-Verified)
 Проверенные конфиги через Xray core (TCP + TLS + загрузка тестового файла).  
-*Последнее обновление: 24.07.2026 13:11 MSK*
+*Последнее обновление: 24.07.2026 15:43 MSK*
 - **Plain:** `https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI.txt`
 - **Base64:** `https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_base64.txt`
 
 ### 2️⃣ TCP+TLS подписка (500 серверов)
 Топ-500 серверов, прошедших TCP-handshake и TLS-проверку.  
-*Последнее обновление: 24.07.2026 13:11 MSK*
+*Последнее обновление: 24.07.2026 15:43 MSK*
 - **Plain:** `https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls.txt`
 - **Base64:** `https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls_base64.txt`
 
 ### 3️⃣ v2ray_sub.txt (Активно обновляется!)
 Основной файл подписки с проверенными конфигами.  
-*Последнее обновление: 24.07.2026 13:11 MSK*
+*Последнее обновление: 24.07.2026 15:43 MSK*
 - **Plain:** `https://raw.githubusercontent.com/B3B3097/paraser/main/v2ray_sub.txt`
 
 ### 4️⃣ Valid Internet Links
 Проверенные ссылки на интернет-ресурсы.  
-*Последнее обновление: 24.07.2026 13:11 MSK*
+*Последнее обновление: 24.07.2026 15:43 MSK*
 - **Plain:** `https://raw.githubusercontent.com/B3B3097/paraser/main/valid_internet_links.txt`
 
 ### 5️⃣ Valid Whitelist Links
 Проверенные ссылки из whitelist.  
-*Последнее обновление: 24.07.2026 13:11 MSK*
+*Последнее обновление: 24.07.2026 15:43 MSK*
 - **Plain:** `https://raw.githubusercontent.com/B3B3097/paraser/main/valid_whitelist_links.txt`
 
 ## ⚙️ Как работает парсер?
