@@ -39,7 +39,7 @@ XRAY_TIMEOUT  = 15
 FETCH_TIMEOUT = 20
 
 CONFIG_NAME    = "ОСТАТЬСЯ НА СВЯЗИ 🛜"
-SPEED_TEST_URL = "https://speed.cloudflare.com/__down?bytes=1048576"  # 1 MB — точнее 200KB
+SPEED_TEST_URL = "https://speed.cloudflare.com/__down?bytes=204800"  # 200 KB
 FALLBACK_URL   = "http://cp.cloudflare.com/"
 FALLBACK_URL2  = "http://speedtest.tele2.net/1MB.zip"
 MIN_SPEED_MBPS = 0.05   # минимум ~50 KB/s — фильтр мёртвых конфигов
