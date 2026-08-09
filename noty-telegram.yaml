@@ -1,0 +1,15 @@
+#  Bot Configuration for Notifications
+
+# Токен вашего Telegram бота (из секрета репо)
+TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+
+# Имя канала или пользователя для отправки уведомлений (из секрета репо)
+TARGET_CHANNEL_ID: ${TARGET_CHANNEL_ID}
+
+# Опции запуска
+ENABLE_NOTIFICATIONS: true
+
+# Формат сообщения (можно настроить)
+MESSAGE_TEMPLATE: "🔔 **Уведомление**\n\n{message}\n\n_Время: {timestamp}_\"
+
+
