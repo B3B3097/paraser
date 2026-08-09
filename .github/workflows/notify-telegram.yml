@@ -1,13 +1,9 @@
 name: Notify Telegram Stats
 
-# ─────────────────────────────────────────────────────────────────────────
-# Запускается автоматически, как только завершится основной workflow
-# "OSTATSYA NA SVYAZI - Hourly Update". Берёт статистику из status2.txt
-# (пишется checker-воркфлоу) и из v2ray_sub.txt, затем отправляет сообщение
-# в Telegram-канал от имени бота:
-#   [файл] · кол-во конфигов · было обновлено · время MSK
-# Нужны секреты репозитория: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-# ─────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────────────
+# Telegram уведомления — запускаются после успешного обновления конфигов
+# Можно запустить вручную через "Run workflow" в GitHub Actions
+# ───────────────────────────────────────────────────────────────────────────
 
 on:
   workflow_run:
@@ -15,6 +11,7 @@ on:
       - "OSTATSYA NA SVYAZI - Hourly Update"
     types:
       - completed
+  workflow_dispatch:  # Ручной запуск
 
 permissions:
   contents: read
@@ -22,7 +19,7 @@ permissions:
 jobs:
   notify:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == "success" }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
 
     steps:
       - name: Checkout repository
@@ -71,6 +68,7 @@ jobs:
 ━━━━━━━━━━━━━━━━━━
 📁 Файл: v2ray_sub.txt
 🔢 Конфигов: ${CONFIG_COUNT} (I: ${INTERNET} · W: ${WHITELIST})
+
 🔄 Обновлено: ${UPDATED}
 🕐 Время: ${LAST_UPDATE}
 ━━━━━━━━━━━━━━━━━━"
@@ -83,3 +81,4 @@ jobs:
             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=${MSG}" \
             --data-urlencode "disable_web_page_preview=true"
+
