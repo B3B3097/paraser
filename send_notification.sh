@@ -14,9 +14,32 @@ TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
 
 # Проверка секротов
-if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+if [ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]; then
     echo "❌ Не найдены секреты:"
     echo "  TELEGRAM_BOT_TOKEN"
+    echo "  TELEGRAM_CHAT_ID"
+    exit 1
+fi
+
+# ── Читаем конфигурацию из noty-telegram.yaml ──
+CONFIG_FILE="${1:-noty-telegram.yaml}"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "❌ Конфигурация не найдена: $CONFIG_FILE"
+    exit 1
+fi
+
+# Заменяем переменные в конфиге на реальные значения (если они есть)
+sed -i 's/\${TELEGRAM_BOT_TOKEN}/'"$TELEGRAM_BOT_TOKEN"'/g' "$CONFIG_FILE"
+sed -i 's/\${TELEGRAM_CHAT_ID}/'"$TELEGRAM_BOT_TOKEN"'/g' "$CONFIG_FILE"
+
+source "$CONFIG_FILE"
+
+# Проверка секротов
+if [ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]; then
+    echo "❌ Не найдены секреты из конфига:"
+    echo "  TELEGRAM_BOT_TOKEN"
+    echo "  echo "
     echo "  TELEGRAM_CHAT_ID"
     exit 1
 fi
@@ -68,3 +91,9 @@ curl -fsSL -X POST \
 --data-urlencode "disable_web_page_preview=true"
 
 echo "✅ Уведомление отправлено в Telegram"
+
+# ── Получаем сообщение (опционально) ──
+if [ -n "$2" ]; then
+    MSG="$2"
+else
+
