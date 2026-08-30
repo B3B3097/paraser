@@ -1,9 +1,14 @@
 name: Notify Telegram Stats
 
-# ──────────────────────────────────────────────────────────────────────────
-# Telegram уведомления — запускаются после успешного обновления конфигов
-# Можно запустить вручную через "Run workflow" в GitHub Actions
-# ───────────────────────────────────────────────────────────────────────────
+# Telegram-уведомления со статистикой обновления конфигов.
+# Запускается автоматически после "OSTATSYA NA SVYAZI - Hourly Update"
+# или вручную кнопкой "Run workflow" во вкладке Actions.
+# Секрет: TELEGRAM_BOT_TOKEN (только токен — chat_id не нужен).
+#
+# Бот сам находит чаты/каналы, куда его добавили админом (через getUpdates),
+# и запоминает их в файле .telegram_chats.txt навсегда.
+# Чтобы добавить новый канал: добавьте бота админом, напишите туда любое
+# сообщение (или пост), и запустите workflow — chat_id сохранится.
 
 on:
   workflow_run:
@@ -11,10 +16,10 @@ on:
       - "OSTATSYA NA SVYAZI - Hourly Update"
     types:
       - completed
-  workflow_dispatch:  # Ручной запуск
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   notify:
@@ -25,22 +30,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 5
+          fetch-depth: 0
 
       - name: Собрать статистику и отправить в Telegram
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           set -u
 
-          # ── Кол-во конфигов в v2ray_sub.txt ──
+          # Кол-во конфигов в v2ray_sub.txt
           CONFIG_COUNT=0
           if [ -f v2ray_sub.txt ]; then
             CONFIG_COUNT=$(wc -l < v2ray_sub.txt | tr -d " ")
           fi
 
-          # ── Данные из status2.txt (написан checker-воркфлоу) ──
+          # Данные из status2.txt (пишется checker-воркфлоу)
           INTERNET=0; WHITELIST=0; TOTAL=0; LAST_UPDATE=""
           if [ -f status2.txt ]; then
             INTERNET=$(jq -r ".internet_count // 0" status2.txt 2>/dev/null || echo 0)
@@ -51,7 +55,7 @@ jobs:
           [ -z "$LAST_UPDATE" ] && LAST_UPDATE=$(TZ="Europe/Moscow" date "+%d.%m.%Y %H:%M MSK")
           [ "$CONFIG_COUNT" -eq 0 ] && [ "$TOTAL" -gt 0 ] 2>/dev/null && CONFIG_COUNT=$TOTAL
 
-          # ── Было обновлено? (последний коммит от бота за последние 20 мин) ──
+          # Было обновлено? (последний коммит от бота за последние 20 мин)
           UPDATED="❌ нет"
           LAST_AUTHOR=$(git log -1 --pretty=format:"%an" 2>/dev/null || echo "")
           LAST_TS=$(git log -1 --pretty=format:"%ct" 2>/dev/null || echo 0)
@@ -63,22 +67,71 @@ jobs:
             fi
           fi
 
-          # ── Сообщение ──
-          MSG="📡 OSTATSYA NA SVYAZI — статистика обновления
-━━━━━━━━━━━━━━━━━━
-📁 Файл: v2ray_sub.txt
-🔢 Конфигов: ${CONFIG_COUNT} (I: ${INTERNET} · W: ${WHITELIST})
-
-🔄 Обновлено: ${UPDATED}
-🕐 Время: ${LAST_UPDATE}
-━━━━━━━━━━━━━━━━━━"
+          # Сообщение (printf — каждая строка с отступом, не ломает YAML)
+          MSG=$(printf "%s\n" \
+            "📦 OSTATSYA NA SVYAZI — статистика обновления" \
+            "━━━━━━━━━━━━━━━━" \
+            "📁 Файл: v2ray_sub.txt" \
+            "🔢 Конфигов: ${CONFIG_COUNT} (I: ${INTERNET} · W: ${WHITELIST})" \
+            "🔄 Обновлено: ${UPDATED}" \
+            "🕐 Время: ${LAST_UPDATE}" \
+            "━━━━━━━━━━━━━━━━")
 
           echo "$MSG"
 
-          # ── Отправка в Telegram ──
-          curl -fsSL -X POST \
-            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${MSG}" \
-            --data-urlencode "disable_web_page_preview=true"
+          # --- Реестр известных чатов ---
+          touch .telegram_chats.txt
+          KNOWN_IDS=$(grep -v '^[[:space:]]*$' .telegram_chats.txt 2>/dev/null | sort -u || true)
 
+          # --- Авто-поиск новых чатов через getUpdates ---
+          curl -fsSL "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/deleteWebhook?drop_pending_updates=false" >/dev/null 2>&1 || true
+          UPD=$(curl -fsSL "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?timeout=0")
+          echo "getUpdates ok: $(echo "$UPD" | jq -r '.ok // false'), count: $(echo "$UPD" | jq -r '.result | length')"
+          NEW_IDS=$(echo "$UPD" | jq -r '
+            [.result[]?
+              | . as $u
+              | [$u.message, $u.channel_post, $u.edited_message, $u.edited_channel_post, $u.my_chat_member, $u.chat_member]
+              | .[]? | select(.chat != null) | .chat.id
+            ] | unique | .[]' 2>/dev/null || true)
+
+          # --- Объединить известные + новые ---
+          ALL_IDS=$(printf "%s\n%s\n" "$KNOWN_IDS" "$NEW_IDS" | grep -v '^[[:space:]]*$' | sort -u)
+
+          if [ -z "$ALL_IDS" ]; then
+            echo "::error::Не найдено ни одного чата. Добавьте бота админом в канал/группу, напишите туда любое сообщение (или пост), и запустите workflow снова в течение 24 часов."
+            exit 1
+          fi
+
+          echo "Всего чатов: $(echo "$ALL_IDS" | wc -l | tr -d ' ')"
+
+          # --- Сохранить новые чаты в реестр ---
+          if [ "$ALL_IDS" != "$KNOWN_IDS" ]; then
+            echo "$ALL_IDS" > .telegram_chats.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add .telegram_chats.txt
+            git commit -m "chore: update telegram chat registry" >/dev/null 2>&1 || true
+            git push >/dev/null 2>&1 || echo "warn: не удалось сохранить реестр (защита ветки?) — отправка продолжится"
+          fi
+
+          # --- Рассылка ---
+          OK=0
+          for CID in $ALL_IDS; do
+            RESP=$(curl -sS -w "\n%{http_code}" -X POST \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+              --data-urlencode "chat_id=${CID}" \
+              --data-urlencode "text=${MSG}" \
+              --data-urlencode "disable_web_page_preview=true")
+            CODE=$(echo "$RESP" | tail -n1)
+            if [ "$CODE" = "200" ]; then
+              echo "✅ Отправлено в ${CID}"
+              OK=$((OK+1))
+            else
+              echo "::error::Ошибка ${CID}: $(echo "$RESP" | sed '$d')"
+            fi
+          done
+
+          if [ "$OK" -eq 0 ]; then
+            echo "::error::Ни в один чат отправить не удалось"
+            exit 1
+          fi
