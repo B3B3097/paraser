@@ -131,8 +131,8 @@ def fetch_vlessforu_configs() -> list[str]:
         print(f"[!] Внимание: не удалось скачать vlessforu ({e}), используем локальные кэшированные данные")
         return []
 
-def format_subscription(configs: list[str], title: str, announce_text: str) -> str:
-    """Форматирует подписку с заголовками v2ray/xray для Happ, v2rayNG, NekoBox, Hiddify."""
+def format_subscription(configs: list[str], title: str, filename: str, announce_text: str) -> str:
+    """Форматирует подписку со всеми стандартными заголовками (v2rayNG, Happ, Streisand, NekoBox, Hiddify, Sing-box)."""
     TZ_MSK = timezone(timedelta(hours=3))
     now_msk = datetime.now(TZ_MSK)
     ts = now_msk.strftime("%d.%m.%Y %H:%M МСК")
@@ -141,11 +141,19 @@ def format_subscription(configs: list[str], title: str, announce_text: str) -> s
     EXPIRE_TS = 4102444800  # 2100-01-01 UTC
     TOTAL_BYTES = 1099511627776  # 1 TiB
     
+    full_title = f"{title} | {total_cfgs} конфигов | {ts}"
+    b64_title = base64.b64encode(full_title.encode("utf-8")).decode("ascii")
+    raw_url = f"https://raw.githubusercontent.com/B3B3097/paraser/main/{filename}"
+    
     header = [
-        f"#profile-title: {title} | {total_cfgs} конфигов | {ts}",
+        f"# !name={full_title}",
+        f"# profile-title: base64:{b64_title}",
+        f"#profile-title: {full_title}",
+        f"# !desc={announce_text} · Обновлено: {ts} · Всего конфигов: {total_cfgs}",
+        f"# !url={raw_url}",
         "#profile-update-interval: 1",
         f"#subscription-userinfo: upload=0; download=0; total={TOTAL_BYTES}; expire={EXPIRE_TS}",
-        f"#announce: {announce_text} | Конфигов: {total_cfgs} | {ts}",
+        f"#announce: {full_title} | {announce_text}",
         "",
     ]
     return "\n".join(header) + "\n" + "\n".join(configs) + "\n"
@@ -224,6 +232,7 @@ def generate_all_subscriptions():
     sub_1_text = format_subscription(
         sub_1_all,
         "ОСТАТЬСЯ НА СВЯЗИ [250 / 20 БС] ⭐",
+        "sub_250_20bs.txt",
         "250 серверов: ровно 20 для Белых Списков РФ + 230 скоростных зарубежных"
     )
     
@@ -238,6 +247,7 @@ def generate_all_subscriptions():
     sub_2_text = format_subscription(
         bs_top_ping_configs[:200],  # Топ по пингу
         "ОСТАТЬСЯ НА СВЯЗИ [BS TOP PING] ⚡",
+        "sub_bs_top_ping.txt",
         "Белые списки (БС) — отсортированы строго по минимальному пингу"
     )
     
@@ -247,6 +257,7 @@ def generate_all_subscriptions():
     sub_3_text = format_subscription(
         bs_sorted,
         "ОСТАТЬСЯ НА СВЯЗИ [BS ВСЕ] 🛡️",
+        "sub_bs_all.txt",
         "Полный пул всех рабочих конфигураций для белых списков РФ"
     )
     
@@ -263,9 +274,8 @@ def generate_all_subscriptions():
             f.write(text)
         print(f"[✓] Создан файл: {filename}")
         
-        # Base64 вариант для v2rayNG / NekoBox / Happ
-        cfg_lines = [l for l in text.splitlines() if l and not l.startswith("#")]
-        b64_content = base64.b64encode("\n".join(cfg_lines).encode("utf-8")).decode("ascii")
+        # Base64 вариант (включает метаданные для отображения имени и описания в клиентах)
+        b64_content = base64.b64encode(text.encode("utf-8")).decode("ascii") + "\n"
         b64_filename = filename.replace(".txt", "_base64.txt")
         b64_path = os.path.join(PROJECT_DIR, b64_filename)
         with open(b64_path, "w", encoding="utf-8") as f:

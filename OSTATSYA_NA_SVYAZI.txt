@@ -1,7 +1,12 @@
-# !name=ОСТАТЬСЯ НА СВЯЗИ 🛜
-# profile-title: base64:0J7QodCi0JDQotCs0KHQryDQndCQINCh0JLQr9CX0Jgg8J+bnA==
-# !desc=Авто-обновление каждый час · 2026-06-07 01:59 UTC · white:11/11
+# !name=ОСТАТЬСЯ НА СВЯЗИ (Xray) 🛜 | 11 конфигов | 18.09.2026 15:30 MSK
+# profile-title: base64:0J7QodCi0JDQotCs0KHQryDQndCQINCh0JLQr9CX0JggKFhyYXkpIPCfm5wgfCAxMSDQutC+0L3RhNC40LPQvtCyIHwgMTguMDkuMjAyNiAxNTozMCBNU0s=
+#profile-title: ОСТАТЬСЯ НА СВЯЗИ (Xray) 🛜 | 11 конфигов | 18.09.2026 15:30 MSK
+# !desc=Проверено через Xray Core: TCP + TLS + Speedtest · Обновлено: 18.09.2026 15:30 MSK · Конфигов: 11
 # !url=https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI.txt
+#profile-update-interval: 1
+#subscription-userinfo: upload=0; download=0; total=1099511627776; expire=4102444800
+#announce: ОСТАТЬСЯ НА СВЯЗИ (Xray) 🛜 | 11 конфигов | 18.09.2026 15:30 MSK | Проверено через Xray Core: TCP + TLS + Speedtest
+
 vless://fc965ad9-bdd7-4815-ad71-b39ec5972dc1@45.130.125.69:443?path=%2Ftsghdws&security=tls&encryption=none&insecure=1&host=octopusss4.com&type=ws&allowInsecure=1&sni=octopusss4.com#%E2%AD%90%20%F0%9F%87%B8%F0%9F%87%A8%201.5MB/s%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%F0%9F%9B%9C
 vless://fc965ad9-bdd7-4815-ad71-b39ec5972dc1@141.193.213.10:443?path=%2Ftsghdws&security=tls&encryption=none&insecure=0&host=octopusss4.com&fp=chrome&type=ws&allowInsecure=0&sni=octopusss4.com#%E2%AD%90%20%F0%9F%87%BA%F0%9F%87%B8%201.3MB/s%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%F0%9F%9B%9C
 vless://fc965ad9-bdd7-4815-ad71-b39ec5972dc1@45.130.125.76:443?encryption=none&type=ws&security=tls&path=%2Ftsghdws&host=octopusss4.com&sni=octopusss4.com&allowInsecure=1#%E2%AD%90%20%F0%9F%87%B8%F0%9F%87%A8%201.3MB/s%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%F0%9F%9B%9C

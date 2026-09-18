@@ -1,7 +1,12 @@
-#profile-title: base64:0J7QodCi0JDQotCs0KHQryDQndCQINCh0JLQr9CX0Jjwn5ucIHwgNzA3OSDQutC+0L3RhNC40LPQvtCyIHwgMTguMDkuMjAyNiAxNTozMCBNU0s=
+# !name=ОСТАТЬСЯ НА СВЯЗИ 🛜 | 7079 конфигов | 18.09.2026 15:30 MSK
+# profile-title: base64:0J7QodCi0JDQotCs0KHQryDQndCQINCh0JLQr9CX0Jgg8J+bnCB8IDcwNzkg0LrQvtC90YTQuNCz0L7QsiB8IDE4LjA5LjIwMjYgMTU6MzAgTVNL
+#profile-title: ОСТАТЬСЯ НА СВЯЗИ 🛜 | 7079 конфигов | 18.09.2026 15:30 MSK
+# !desc=Основной проверенный пул конфигураций · Обновлено: 18.09.2026 15:30 MSK · Конфигов: 7079
+# !url=https://raw.githubusercontent.com/B3B3097/paraser/main/v2ray_sub.txt
 #profile-update-interval: 1
 #subscription-userinfo: upload=0; download=0; total=1099511627776; expire=4102444800
-#announce: ОСТАТЬСЯ НА СВЯЗИ | 7079 конфигов | 12.07.2026 10:07 МСК
+#announce: ОСТАТЬСЯ НА СВЯЗИ 🛜 | 7079 конфигов | 18.09.2026 15:30 MSK | Основной проверенный пул конфигураций
+
 vless://ca6a7a70-4d44-433f-b727-1ed22ae7bf23@198.41.223.1:443?encryption=none&type=ws&host=proxy.nyarvex.kdns.fr&path=%2Fproxy&security=tls&alpn=http%2F1.1&fp=firefox&sni=proxy.nyarvex.kdns.fr#%F0%9F%87%BA%F0%9F%87%B8%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%E2%AD%90%231%2046.1MB%2Fs%20348ms
 vless://ca6a7a70-4d44-433f-b727-1ed22ae7bf23@198.41.223.1:443?alpn=http%2F1.1&ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&fp=firefox&host=proxy.nyarvex.kdns.fr&path=%2Fproxy&security=tls&sni=proxy.nyarvex.kdns.fr&type=ws#%F0%9F%87%BA%F0%9F%87%B8%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%E2%AD%90%232%2013.7MB%2Fs%201314ms
 vless://e4824193-4f54-453b-d037-88368e85ef0e@104.19.142.226:443?type=grpc&security=tls&sni=dat1.afterdomain.shop&fp=firefox#%F0%9F%87%BA%F0%9F%87%B8%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%E2%AD%90%233%2012.7MB%2Fs%20479ms
@@ -7081,16 +7086,3 @@ vless://18805ff3-b420-45de-af18-93be14024ae8@47.251.25.74:443?encryption=none&fl
 vless://a34b5e88-cf0d-4c01-8199-2d1002d3c787@185.66.68.72:443?type=tcp&security=reality&sni=www.wikihow.com&fp=firefox&pbk=HKpd1sbrhBds8SJSL0d22MAq_QyTR6EP6y5b5DYol3U&sid=&flow=xtls-rprx-vision#%F0%9F%87%A7%F0%9F%87%BE%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%F0%9F%8C%90%234326%2013KB%2Fs%201349ms
 vless://c918927a-a4cf-45ad-a5c8-e135129ee1d4@37.9.4.168:443?fp=firefox&mode=gun&pbk=xSBUeRP0UXGevxr3zKTskWvYG6vJSjlZYc4lYIIurmU&security=reality&serviceName=gun&sid=ee&sni=centos.ubuntuhosting.host&type=grpc#%21%20%F0%9F%87%B7%F0%9F%87%BA%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%F0%9F%8C%90%234327%2010KB%2Fs%201994ms
 vless://27f914c5-bdcc-441a-9459-368daf552606@assets.hihidress.com:443?type=tcp&security=reality&sni=m.media-amazon.com&fp=firefox&pbk=zCeRZCK7gCGFmPlOzBaTWHVkmysMFJlPqgDTPZRjRx0&sid=6ba85179e30d4fc2&flow=xtls-rprx-vision#%F0%9F%87%B3%F0%9F%87%B1%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%F0%9F%8C%90%234328%209KB%2Fs%201424ms
-
-# ❓ Неизвестно: 4397 | 🌍 Иностранный: 2595 | ☁️ Cloudflare: 83 | 🇷🇺 ТСПУ: 4
-# ──────────────────────────────────────────────────
-# НАСТРОЙКИ ДЛЯ ОБХОДА ТСПУ (июнь 2026, v4.0 Siberian Pro):
-# Fingerprint: firefox/cnsa/edge (уже применён в конфигах)
-# SNI rotation: yandex.ru, vk.com, sberbank.ru (авто-подстановка)
-# Multi-fp тестирование: firefox, cnsa, edge, android, qq
-# Mux/XUDP: включите в клиенте (concurrency=8-16)
-#   v2rayNG: Конфиг -> Настройки -> Мультиплексирование -> Вкл
-#   NekoRay: Outbound -> Mux -> Вкл, XUDP, concurrency=8
-# Избегайте RU-TSPU серверов (под ТСПУ фильтрацией)
-# Рекомендованные: иностранные хостинги (Hetzner/OVH/DO/Vultr)
-# ──────────────────────────────────────────────────
