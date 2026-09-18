@@ -94,26 +94,28 @@ def extract_speed(link: str) -> float:
 
 def is_true_whitelist_config(link: str) -> bool:
     """
-    Проверка на белый список (БС):
-    1. Наличие меток LTE/5G, SNi vk.com, SNi x5.ru и т.д.
-    2. SNI / Host принадлежит доверенному пулу российских сервисов из белых списков.
+    Автономная проверка конфигурации на соответствие Белым Спискам (БС) РФ
+    через whitelist_validator (SNI 23k+ доменов, CIDR 28k+ подсетей РФ, ASN и DPI-маркеры).
     """
-    hash_idx = link.find("#")
-    remark = unquote(link[hash_idx + 1:]).lower() if hash_idx != -1 else ""
-    
-    # Явные метки из vlessforu или отечественных сборок
-    if any(m in remark for m in ["lte/5g", "sni vk", "sni x5", "белый список", "белые списки"]):
-        return True
-        
-    sni, host = extract_sni_and_host(link)
-    for target in (sni, host):
-        if not target:
-            continue
-        for root in TRUE_BS_ROOTS:
-            if target == root or target.endswith("." + root):
-                return True
-                
-    return False
+    try:
+        from whitelist_validator import evaluate_whitelist_criteria
+        is_bs, _, _ = evaluate_whitelist_criteria(link)
+        return is_bs
+    except Exception:
+        # Резервный поиск по корням доменов
+        hash_idx = link.find("#")
+        remark = unquote(link[hash_idx + 1:]).lower() if hash_idx != -1 else ""
+        if any(m in remark for m in ["lte/5g", "sni vk", "sni x5", "белый список", "белые списки"]):
+            return True
+            
+        sni, host = extract_sni_and_host(link)
+        for target in (sni, host):
+            if not target:
+                continue
+            for root in TRUE_BS_ROOTS:
+                if target == root or target.endswith("." + root):
+                    return True
+        return False
 
 def fetch_vlessforu_configs() -> list[str]:
     """Скачивает и возвращает актуальные конфиги из vlessforu."""

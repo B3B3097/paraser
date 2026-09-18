@@ -1022,6 +1022,28 @@ def main():
     raw_links_whitelist = _dedup_links(raw_links_whitelist)
     print(f"  Дедупликация: интернет {before_i}→{len(raw_links_internet)}, вайтлист {before_w}→{len(raw_links_whitelist)}")
 
+    # ─── Собственный автономный классификатор БС (Белых Списков РФ) ───────────
+    # Анализирует каждый конфиг из всех источников по базе 23k+ SNI и 28k+ CIDR РФ
+    print("\n[+] Собственный анализ пула источников на Белые Списки РФ (whitelist_validator)...")
+    try:
+        from whitelist_validator import evaluate_whitelist_criteria
+        discovered_bs = []
+        regular_internet = []
+        for l in raw_links_internet:
+            is_bs, reason, _ = evaluate_whitelist_criteria(l)
+            if is_bs:
+                discovered_bs.append(l)
+            else:
+                regular_internet.append(l)
+        if discovered_bs:
+            print(f"  [+] Автономно обнаружено {len(discovered_bs)} БС-конфигураций в общем пуле!")
+            raw_links_whitelist.extend(discovered_bs)
+            raw_links_whitelist = _dedup_links(raw_links_whitelist)
+            raw_links_internet = regular_internet
+            print(f"  [+] Итоговый баланс пулов: интернет={len(raw_links_internet)}, вайтлист={len(raw_links_whitelist)}")
+    except Exception as e:
+        print(f"  [-] Ошибка анализа БС: {e}")
+
     # Предварительная ТСПУ-сортировка: конфиги с firefox/edge идут первыми
     # Это повышает шанс попасть в топ ещё до реальной проверки скорости
     print("\n[+] Предварительная ТСПУ-сортировка (приоритет firefox/edge fingerprint)...")
