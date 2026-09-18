@@ -1,0 +1,6 @@
+{
+  "name": "VLESS Parser",
+  "description": "Collect, parse, and test VLESS proxy configurations from subscription sources with connectivity checks and Sing-Box/Xray export",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

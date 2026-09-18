@@ -1,5 +1,5 @@
 # Sources: merged from existing + whoahaow/rjsxrd URLS.txt + direct bypass files
-://github.com/0xAbolfazl/PyroConfig
+https://github.com/0xAbolfazl/PyroConfig
 https://github.com/0x64656164/cancer-treatment
 https://github.com/10ium/HiN-VPN
 https://github.com/10ium/ScrapeAndCategorize

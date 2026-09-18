@@ -1170,6 +1170,13 @@ def main():
         f.write("\n".join(final_lines))
     print(f"[+] Финальный файл подписки: {output_sub}")
     
+    # Генерация 3 новых подписок (250 / 20 БС, BS top ping, BS все)
+    try:
+        from generate_subscriptions import generate_all_subscriptions
+        generate_all_subscriptions()
+    except Exception as e:
+        print(f"[-] Ошибка генерации дополнительных подписок: {e}")
+    
     total_count = len(valid_links_internet) + len(valid_links_whitelist)
     print(f"    Всего конфигов: {total_count}")
     
