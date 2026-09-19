@@ -17,7 +17,7 @@
 - **230 скоростных серверов зарубежного интернета** — максимальная скорость для YouTube, Instagram, Discord, ChatGPT, Twitter/X.
 - **Всего:** ровно 250 отборных серверов с минимальной задержкой.
 
-*Последнее обновление: 19.09.2026 20:18 MSK*
+*Последнее обновление: 20.09.2026 00:56 MSK*
 - 📄 **Plain Text (URL):**
   ```
   https://raw.githubusercontent.com/B3B3097/paraser/main/sub_250_20bs.txt
@@ -35,7 +35,7 @@
 - Оптимизированы под российских операторов связи (МТС, Мегафон, Билайн, Tele2, Ростелеком).
 - Идеально для голосовой связи, игр и мгновенного открытия сайтов во время изоляции сети.
 
-*Последнее обновление: 19.09.2026 20:18 MSK*
+*Последнее обновление: 20.09.2026 00:56 MSK*
 - 📄 **Plain Text (URL):**
   ```
   https://raw.githubusercontent.com/B3B3097/paraser/main/sub_bs_top_ping.txt
@@ -53,7 +53,7 @@
 - Включает все рабочие конфигурации из базы VLESS-For-U, проверенные пулы и источники из `source.txt`.
 - Максимальная надёжность и отказоустойчивость при любых сценариях блокировок.
 
-*Последнее обновление: 19.09.2026 20:18 MSK*
+*Последнее обновление: 20.09.2026 00:56 MSK*
 - 📄 **Plain Text (URL):**
   ```
   https://raw.githubusercontent.com/B3B3097/paraser/main/sub_bs_all.txt
@@ -69,18 +69,18 @@
 
 ### 4️⃣ Основная подписка (Xray-Verified: OSTATSYA NA SVYAZI)
 Проверенные конфиги через Xray core (TCP + TLS + загрузка тестового файла).  
-*Последнее обновление: 19.09.2026 20:18 MSK*
+*Последнее обновление: 20.09.2026 00:56 MSK*
 - **Plain:** `https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI.txt`
 - **Base64:** `https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_base64.txt`
 
 ### 5️⃣ TCP+TLS подписка (500 серверов)
 Топ-500 серверов, прошедших TCP-handshake и TLS-проверку.  
-*Последнее обновление: 19.09.2026 20:18 MSK*
+*Последнее обновление: 20.09.2026 00:56 MSK*
 - **Plain:** `https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls.txt`
 - **Base64:** `https://raw.githubusercontent.com/B3B3097/paraser/main/OSTATSYA_NA_SVYAZI_tcptls_base64.txt`
 
 ### 6️⃣ v2ray_sub.txt (Общий проверенный пул)
-*Последнее обновление: 19.09.2026 20:18 MSK*
+*Последнее обновление: 20.09.2026 00:56 MSK*
 - **Plain:** `https://raw.githubusercontent.com/B3B3097/paraser/main/v2ray_sub.txt`
 
 ### 7️⃣ Дополнительные базы
