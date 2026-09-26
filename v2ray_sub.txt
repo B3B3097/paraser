@@ -1,11 +1,11 @@
-# !name=ОСТАТЬСЯ НА СВЯЗИ 🛜 | 7079 конфигов | 26.09.2026 15:42 MSK
-# profile-title: base64:0J7QodCi0JDQotCs0KHQryDQndCQINCh0JLQr9CX0Jgg8J+bnCB8IDcwNzkg0LrQvtC90YTQuNCz0L7QsiB8IDI2LjA5LjIwMjYgMTU6NDIgTVNL
-#profile-title: ОСТАТЬСЯ НА СВЯЗИ 🛜 | 7079 конфигов | 26.09.2026 15:42 MSK
-# !desc=Основной проверенный пул конфигураций · Обновлено: 26.09.2026 15:42 MSK · Конфигов: 7079
+# !name=ОСТАТЬСЯ НА СВЯЗИ 🛜 | 7079 конфигов | 26.09.2026 20:43 MSK
+# profile-title: base64:0J7QodCi0JDQotCs0KHQryDQndCQINCh0JLQr9CX0Jgg8J+bnCB8IDcwNzkg0LrQvtC90YTQuNCz0L7QsiB8IDI2LjA5LjIwMjYgMjA6NDMgTVNL
+#profile-title: ОСТАТЬСЯ НА СВЯЗИ 🛜 | 7079 конфигов | 26.09.2026 20:43 MSK
+# !desc=Основной проверенный пул конфигураций · Обновлено: 26.09.2026 20:43 MSK · Конфигов: 7079
 # !url=https://raw.githubusercontent.com/B3B3097/paraser/main/v2ray_sub.txt
 #profile-update-interval: 1
 #subscription-userinfo: upload=0; download=0; total=1099511627776; expire=4102444800
-#announce: ОСТАТЬСЯ НА СВЯЗИ 🛜 | 7079 конфигов | 26.09.2026 15:42 MSK | Основной проверенный пул конфигураций
+#announce: ОСТАТЬСЯ НА СВЯЗИ 🛜 | 7079 конфигов | 26.09.2026 20:43 MSK | Основной проверенный пул конфигураций
 
 vless://ca6a7a70-4d44-433f-b727-1ed22ae7bf23@198.41.223.1:443?encryption=none&type=ws&host=proxy.nyarvex.kdns.fr&path=%2Fproxy&security=tls&alpn=http%2F1.1&fp=firefox&sni=proxy.nyarvex.kdns.fr#%F0%9F%87%BA%F0%9F%87%B8%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%E2%AD%90%231%2046.1MB%2Fs%20348ms
 vless://ca6a7a70-4d44-433f-b727-1ed22ae7bf23@198.41.223.1:443?alpn=http%2F1.1&ed=2560&eh=Sec-WebSocket-Protocol&encryption=none&fp=firefox&host=proxy.nyarvex.kdns.fr&path=%2Fproxy&security=tls&sni=proxy.nyarvex.kdns.fr&type=ws#%F0%9F%87%BA%F0%9F%87%B8%20%D0%9E%D0%A1%D0%A2%D0%90%D0%A2%D0%AC%D0%A1%D0%AF%20%D0%9D%D0%90%20%D0%A1%D0%92%D0%AF%D0%97%D0%98%20%E2%AD%90%232%2013.7MB%2Fs%201314ms
