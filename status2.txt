@@ -1,5 +1,5 @@
 {
-  "last_update_msk": "09.10.2026 22:48 MSK",
+  "last_update_msk": "10.10.2026 05:14 MSK",
   "internet_count": 4328,
   "whitelist_count": 2751,
   "total_count": 7079,
